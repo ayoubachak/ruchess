@@ -1,0 +1,11 @@
+/* App.css */
+.App {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 100vh; /* Use the full height of the viewport */
+}
+
+.App-header {
+  text-align: center;
+}
