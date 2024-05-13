@@ -1,30 +1,61 @@
 import React from 'react';
 import Square from './Square';
 import { useChess } from '../Context/ChessContext';
+import { invoke } from '@tauri-apps/api/tauri';
+import { Position } from '../types/Position';
 
 const Chessboard: React.FC = () => {
     const {gameState, setGameState, isLoading} = useChess();
-    console.log(gameState);
-    const board : JSX.Element[] = [];
-    const player = gameState.current_player;
-    const game_over = gameState.game_over;
-    console.log(board);
-    
-    
+
     if (isLoading) {
         return <div>Loading...</div>;
     }
+
     const rows = gameState.board.length;
     const cols = gameState.board[0].length;
+    const board: JSX.Element[] = [];
 
+    // Handling clicks directly based on the actual x, y from the UI
+    const handleSquareClick = (x: number, y: number) => {
+        const fullBoard = gameState.board.map(row =>
+            row.map(square => ({
+                x: square.x,
+                y: square.y,
+                piece: square.piece ? {
+                    piece_type: square.piece.piece_type,
+                    color: square.piece.color
+                } : null  // This should correctly serialize to None in Rust
+            }))
+        );
+    
+        invoke<Position[]>('get_possible_moves', { x, y, board: fullBoard })
+            .then((moves: Position[]) => {
+                const newBoard = gameState.board.map((row, rowIndex) =>
+                    row.map((square, colIndex) => ({
+                        ...square,
+                        isPossibleMove: moves.some(move => move.x === colIndex && move.y === rowIndex)
+                    }))
+                );
+                setGameState({ ...gameState, board: newBoard });
+            })
+            .catch(error => console.error('Error fetching moves:', error));
+    };
+
+    // Correct loop to render the board as per chess standards
     for (let i = 0; i < rows; i++) {
         for (let j = 0; j < cols; j++) {
-            const square = gameState.board[i][j];             
-            board.push(<Square key={`${i}-${j}`} square={square} />);
+            const square = gameState.board[i][j];
+            board.push(
+                <Square
+                    key={`${i}-${j}`}
+                    square={square}
+                    onClick={() => handleSquareClick(j, i)}
+                />
+            );
         }
     }
 
-     return (
+    return (
         <div
             style={{
                 display: 'grid',
@@ -41,3 +72,4 @@ const Chessboard: React.FC = () => {
 };
 
 export default Chessboard;
+

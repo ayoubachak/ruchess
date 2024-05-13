@@ -1,26 +1,21 @@
 use super::piece::{Piece, PieceType, Color};
 
 /// Returns the initial piece setup for a given position.
-pub fn initial_piece_setup(x: usize, y: usize) -> Option<Piece> {
-    match (x, y) {
+pub fn initial_piece_setup(col: usize, row: usize) -> Option<Piece> {
+    let color = if row < 2 { Color::White } else { Color::Black };
+    match (row, col) {
         // Pawns
-        (x, 1) => Some(Piece { piece_type: PieceType::Pawn, color: Color::White }),
-        (x, 6) => Some(Piece { piece_type: PieceType::Pawn, color: Color::Black }),
+        (1, _) | (6, _) => Some(Piece { piece_type: PieceType::Pawn, color }),
         // Rooks
-        (0, 0) | (7, 0) => Some(Piece { piece_type: PieceType::Rook, color: Color::White }),
-        (0, 7) | (7, 7) => Some(Piece { piece_type: PieceType::Rook, color: Color::Black }),
+        (0, 0) | (0, 7) | (7, 0) | (7, 7) => Some(Piece { piece_type: PieceType::Rook, color }),
         // Knights
-        (1, 0) | (6, 0) => Some(Piece { piece_type: PieceType::Knight, color: Color::White }),
-        (1, 7) | (6, 7) => Some(Piece { piece_type: PieceType::Knight, color: Color::Black }),
+        (0, 1) | (0, 6) | (7, 1) | (7, 6) => Some(Piece { piece_type: PieceType::Knight, color }),
         // Bishops
-        (2, 0) | (5, 0) => Some(Piece { piece_type: PieceType::Bishop, color: Color::White }),
-        (2, 7) | (5, 7) => Some(Piece { piece_type: PieceType::Bishop, color: Color::Black }),
+        (0, 2) | (0, 5) | (7, 2) | (7, 5) => Some(Piece { piece_type: PieceType::Bishop, color }),
         // Queens
-        (3, 0) => Some(Piece { piece_type: PieceType::Queen, color: Color::White }),
-        (3, 7) => Some(Piece { piece_type: PieceType::Queen, color: Color::Black }),
+        (0, 3) | (7, 3) => Some(Piece { piece_type: PieceType::Queen, color }),
         // Kings
-        (4, 0) => Some(Piece { piece_type: PieceType::King, color: Color::White }),
-        (4, 7) => Some(Piece { piece_type: PieceType::King, color: Color::Black }),
+        (0, 4) | (7, 4) => Some(Piece { piece_type: PieceType::King, color }),
         _ => None,
     }
 }
