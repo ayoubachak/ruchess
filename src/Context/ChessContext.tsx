@@ -5,16 +5,16 @@ import { Color, Square, PieceType, Piece, Position } from '../types';
 
 // Game modes for future expansion
 export enum GameMode {
-  LOCAL = 'local',
-  AI = 'ai',
-  MULTIPLAYER = 'multiplayer'
+  LOCAL = 'LOCAL',
+  AI = 'AI',
+  MULTIPLAYER = 'MULTIPLAYER'
 }
 
 // Game difficulty levels for AI mode
 export enum Difficulty {
-  EASY = 'easy',
-  MEDIUM = 'medium',
-  HARD = 'hard'
+  EASY = 'EASY',
+  MEDIUM = 'MEDIUM',
+  HARD = 'HARD'
 }
 
 interface GameState {
@@ -515,40 +515,91 @@ export const ChessProvider: React.FC<Props> = ({ children }) => {
         if (isTauriAvailable) {
             invoke<GameState>('reset_game')
                 .then(initialState => {
-                    setGameState(initialState);
+                    console.log("Received reset game state:", initialState);
+                    
+                    // Format the board data properly just like in startNewGame
+                    const formattedGameState = {
+                        ...initialState,
+                        board: initialState.board && (initialState.board.board || Array.isArray(initialState.board)) ? 
+                            formatBoardFromBackend(initialState.board.board || initialState.board) : 
+                            createMockBoard() // Use mock board if response is malformed
+                    };
+                    
+                    setGameState(formattedGameState);
                 })
                 .catch(error => {
                     console.error('Error resetting game:', error);
+                    // Fallback to client-side implementation if Tauri call fails
+                    fallbackToMockData();
                 });
             return;
         }
         
         // Fallback for development without Tauri
-        const mockBoard = createMockBoard();
-        setGameState({
-            ...initialState,
-            board: mockBoard
-        });
+        fallbackToMockData();
     };
     
     // Start a new game with given configuration
     const startNewGame = (config: GameConfig) => {
         setGameConfig(config);
+        setIsLoading(true);
         
         // Process in Rust backend when available
         if (isTauriAvailable) {
+            console.log("Starting new game with config:", config);
+            
+            // Fix: Pass the config object as a single parameter instead of individual properties
             invoke<GameState>('start_new_game', { config })
                 .then(newGameState => {
-                    setGameState(newGameState);
+                    console.log("Received new game state:", newGameState);
+                    
+                    // Make sure we have a valid game state
+                    if (!newGameState) {
+                        console.error("Received empty game state from backend");
+                        fallbackToMockData();
+                        return;
+                    }
+                    
+                    // Format the board data properly
+                    const formattedGameState = {
+                        ...initialState, // Start with a clean slate
+                        ...newGameState, // Apply backend state properties
+                        board: newGameState.board && (newGameState.board.board || Array.isArray(newGameState.board)) ? 
+                            formatBoardFromBackend(newGameState.board.board || newGameState.board) : 
+                            createMockBoard() // Use mock board if response is malformed
+                    };
+                    
+                    setGameState(formattedGameState);
+                    setIsLoading(false);
                 })
                 .catch(error => {
                     console.error('Error starting new game:', error);
+                    // Fallback to client-side implementation if Tauri call fails
+                    fallbackToMockData();
                 });
             return;
         }
         
         // Fallback for development without Tauri
-        resetGame();
+        fallbackToMockData();
+    };
+    
+    // Helper function to create a fallback game state
+    const fallbackToMockData = () => {
+        console.log('Falling back to mock data for game state');
+        // Create a mock chess board with pieces
+        const mockBoard = createMockBoard();
+        setGameState({
+            ...initialState,
+            board: mockBoard,
+            current_player: Color.White,
+            game_over: false,
+            isCheck: false,
+            gameOverMessage: '',
+            moveHistory: [],
+            selectedSquare: null,
+            possibleMoves: []
+        });
     };
     
     // Undo the last move
@@ -867,12 +918,34 @@ export const ChessProvider: React.FC<Props> = ({ children }) => {
             }
             
             return backendBoard.map((row, y) => 
-                row.map((cell, x) => ({
-                    x: x,
-                    y: y,
-                    piece: cell || null,
-                    isPossibleMove: false
-                }))
+                row.map((cell, x) => {
+                    // Check if cell is a piece object or null
+                    let piece = null;
+                    if (cell) {
+                        if (typeof cell === 'object') {
+                            // Extract piece information from cell object
+                            if (cell.piece_type !== undefined && cell.color !== undefined) {
+                                piece = {
+                                    piece_type: cell.piece_type,
+                                    color: cell.color
+                                };
+                            } else if (cell.type !== undefined && cell.color !== undefined) {
+                                // Alternative naming that might be used in Rust
+                                piece = {
+                                    piece_type: cell.type,
+                                    color: cell.color
+                                };
+                            }
+                        }
+                    }
+                    
+                    return {
+                        x: x,
+                        y: y,
+                        piece: piece,
+                        isPossibleMove: false
+                    };
+                })
             );
         } catch (e) {
             console.error("Error formatting board from backend:", e);

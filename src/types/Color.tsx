@@ -1,5 +1,6 @@
 export enum Color {
-    White, Black,
+    White = 'WHITE',
+    Black = 'BLACK',
 }
 
 export function isWhite(color: Color | null): boolean {
