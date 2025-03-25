@@ -340,6 +340,8 @@ export const ChessProvider: React.FC<Props> = ({ children }) => {
     
     // Client-side square selection logic to use when Tauri is not available
     const handleClientSideSelection = (x: number, y: number) => {
+        console.log(`Selecting square at (${x}, ${y})`);
+        
         // If a square is already selected and the new click is a valid move
         if (gameState.selectedSquare) {
             // Check if clicked square is in possible moves
@@ -347,14 +349,16 @@ export const ChessProvider: React.FC<Props> = ({ children }) => {
                 move => move.x === x && move.y === y
             );
             
+            // If clicking on a valid move square, move the piece
             if (isValidMove) {
-                // Move the piece locally
+                console.log(`Moving piece from (${gameState.selectedSquare.x}, ${gameState.selectedSquare.y}) to (${x}, ${y})`);
                 movePiece(gameState.selectedSquare.x, gameState.selectedSquare.y, x, y);
                 return;
             }
             
             // Clear selection if clicking the same square
             if (gameState.selectedSquare.x === x && gameState.selectedSquare.y === y) {
+                console.log('Deselecting square');
                 clearSelection();
                 return;
             }
@@ -363,12 +367,16 @@ export const ChessProvider: React.FC<Props> = ({ children }) => {
         // Check if the square contains a piece of the current player
         const square = gameState.board[y][x];
         if (!square.piece || square.piece.color !== gameState.current_player) {
+            console.log('Square is empty or has opponent piece, clearing selection');
             clearSelection();
             return;
         }
         
+        console.log(`Piece found: ${square.piece.piece_type} (${square.piece.color}), calculating possible moves`);
+        
         // Calculate possible moves locally for the selected piece
-        const possibleMoves = calculatePossibleMoves(x, y);
+        const possibleMoves = calculatePieceMoves(gameState.board, x, y);
+        console.log(`Found ${possibleMoves.length} possible moves`, possibleMoves);
         
         // Update board with possible moves highlighted
         const newBoard = gameState.board.map(row =>
@@ -376,7 +384,9 @@ export const ChessProvider: React.FC<Props> = ({ children }) => {
         );
         
         possibleMoves.forEach(move => {
-            newBoard[move.y][move.x].isPossibleMove = true;
+            if (move.x >= 0 && move.x < 8 && move.y >= 0 && move.y < 8) {
+                newBoard[move.y][move.x].isPossibleMove = true;
+            }
         });
         
         setGameState({
@@ -435,14 +445,32 @@ export const ChessProvider: React.FC<Props> = ({ children }) => {
     
     // Client-side move logic to use when Tauri is not available
     const handleClientSideMove = (fromX: number, fromY: number, toX: number, toY: number) => {
+        console.log(`Processing move from (${fromX}, ${fromY}) to (${toX}, ${toY})`);
+        
+        // Check if the move is valid
+        const possibleMoves = calculatePieceMoves(gameState.board, fromX, fromY);
+        const isValidMove = possibleMoves.some(move => move.x === toX && move.y === toY);
+        
+        if (!isValidMove) {
+            console.error("Invalid move attempted");
+            return;
+        }
+        
         // Deep clone the board to avoid mutation
         const newBoard = JSON.parse(JSON.stringify(gameState.board));
         
         // Store the captured piece (for detecting checkmate)
         const capturedPiece = newBoard[toY][toX].piece;
         
+        // Get the moving piece
+        const movingPiece = newBoard[fromY][fromX].piece;
+        if (!movingPiece) {
+            console.error("No piece found at source position");
+            return;
+        }
+        
         // Move the piece
-        newBoard[toY][toX].piece = newBoard[fromY][fromX].piece;
+        newBoard[toY][toX].piece = movingPiece;
         newBoard[fromY][fromX].piece = null;
         
         // Clear possible moves highlights
@@ -451,7 +479,7 @@ export const ChessProvider: React.FC<Props> = ({ children }) => {
         // Switch player turn
         const newCurrentPlayer = gameState.current_player === Color.White ? Color.Black : Color.White;
         
-        // Generate algebraic notation for the move (simplified)
+        // Generate algebraic notation for the move
         const notation = generateMoveNotation(fromX, fromY, toX, toY, capturedPiece);
         
         // Check if this is a game-ending move (king capture)
@@ -465,6 +493,8 @@ export const ChessProvider: React.FC<Props> = ({ children }) => {
         
         // Check if the opponent's king is in check
         const isInCheck = isKingInCheck(newBoard, newCurrentPlayer);
+        
+        console.log(`Move complete. New player: ${newCurrentPlayer}. Check: ${isInCheck}. Game over: ${gameOver}`);
         
         setGameState({
             ...gameState,

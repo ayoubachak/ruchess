@@ -14,7 +14,8 @@ const Chessboard: React.FC = () => {
         selectSquare,
         resetGame,
         startNewGame,
-        undoMove
+        undoMove,
+        movePiece
     } = useChess();
     
     const [showNewGameOptions, setShowNewGameOptions] = useState(false);
@@ -79,7 +80,19 @@ const Chessboard: React.FC = () => {
     // Handle square clicks - now delegated to the context
     const handleSquareClick = (x: number, y: number) => {
         if (gameState && selectSquare) {
-            selectSquare(x, y);
+            // If a square is already selected and the new click is on a possible move square
+            if (gameState.selectedSquare && gameState.possibleMoves.some(move => move.x === x && move.y === y)) {
+                // Move the piece
+                movePiece(
+                    gameState.selectedSquare.x, 
+                    gameState.selectedSquare.y, 
+                    x, 
+                    y
+                );
+            } else {
+                // Otherwise just select the square (will calculate moves if needed)
+                selectSquare(x, y);
+            }
         }
     };
     

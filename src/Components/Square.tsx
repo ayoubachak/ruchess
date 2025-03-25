@@ -23,7 +23,7 @@ interface SquareProps {
 }
 
 const BoardSquare: React.FC<SquareProps> = ({ square, onClick, isSelected = false }) => {
-    const { gameState } = useChess();
+    const { gameState, movePiece } = useChess();
     
     const black = (square.x + square.y) % 2 === 0;
     
@@ -76,9 +76,80 @@ const BoardSquare: React.FC<SquareProps> = ({ square, onClick, isSelected = fals
         }
     };
     
+    // Handle drag start - only allow current player's pieces to be dragged
+    const handleDragStart = (e: React.DragEvent) => {
+        // Only allow dragging if the square has a piece and it's the current player's turn
+        if (square.piece && square.piece.color === gameState.current_player) {
+            // Set the data being dragged (the position of the piece)
+            e.dataTransfer.setData('text/plain', `${square.x},${square.y}`);
+            
+            // Set the drag image (optional)
+            const img = document.createElement('img');
+            img.src = getImage(square.piece);
+            e.dataTransfer.setDragImage(img, 25, 25);
+            
+            // Add a class for styling
+            setTimeout(() => {
+                e.currentTarget.classList.add('dragging');
+            }, 0);
+            
+            // Also select the square to show possible moves
+            onClick();
+        } else {
+            // Prevent dragging if not the current player's piece
+            e.preventDefault();
+        }
+    };
+    
+    // Handle drag end
+    const handleDragEnd = (e: React.DragEvent) => {
+        e.currentTarget.classList.remove('dragging');
+    };
+    
+    // Handle drag over - only allow dropping on valid move squares
+    const handleDragOver = (e: React.DragEvent) => {
+        if (square.isPossibleMove) {
+            e.preventDefault(); // This is necessary to allow dropping
+            e.currentTarget.classList.add('drag-over');
+        }
+    };
+    
+    // Handle drag leave
+    const handleDragLeave = (e: React.DragEvent) => {
+        e.currentTarget.classList.remove('drag-over');
+    };
+    
+    // Handle drop - move the piece if the drop is on a valid square
+    const handleDrop = (e: React.DragEvent) => {
+        e.preventDefault();
+        e.currentTarget.classList.remove('drag-over');
+        
+        // Only process drops on valid move squares
+        if (square.isPossibleMove) {
+            try {
+                const fromCoords = e.dataTransfer.getData('text/plain').split(',');
+                if (fromCoords.length === 2) {
+                    const fromX = parseInt(fromCoords[0]);
+                    const fromY = parseInt(fromCoords[1]);
+                    
+                    // Log move for debugging
+                    console.log(`Moving piece from (${fromX},${fromY}) to (${square.x},${square.y})`);
+                    
+                    // Execute the move
+                    movePiece(fromX, fromY, square.x, square.y);
+                }
+            } catch (err) {
+                console.error("Error during drop:", err);
+            }
+        }
+    };
+    
+    // Determine if this is a possible capture (has both isPossibleMove and a piece)
+    const isPossibleCapture = square.isPossibleMove && square.piece;
+    
     return (
         <div 
-            className={`chess-square ${isSelected ? 'selected' : ''}`}
+            className={`chess-square ${isSelected ? 'selected' : ''} ${square.isPossibleMove ? 'possible-move' : ''}`}
             onClick={onClick} 
             style={{
                 backgroundColor: fillColor,
@@ -87,10 +158,17 @@ const BoardSquare: React.FC<SquareProps> = ({ square, onClick, isSelected = fals
                 display: 'flex',
                 justifyContent: 'center',
                 alignItems: 'center',
-                position: 'relative',  // Ensure that the positioning context is set
+                position: 'relative',
                 cursor: 'pointer',
                 transition: 'background-color 0.2s ease'
             }}
+            // Add drag-and-drop attributes for pieces
+            draggable={!!square.piece}
+            onDragStart={handleDragStart}
+            onDragEnd={handleDragEnd}
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDrop}
         >
             {square.piece && (
                 <img 
@@ -99,21 +177,62 @@ const BoardSquare: React.FC<SquareProps> = ({ square, onClick, isSelected = fals
                     style={{ 
                         maxWidth: '80%', 
                         maxHeight: '80%', 
-                        zIndex: 1 
+                        zIndex: 2,
+                        pointerEvents: "none" // This prevents the image from interfering with drag events
                     }} 
                 />
             )}
             
-            {square.isPossibleMove && 
-                <div style={{ 
+            {/* Highlight for empty possible move */}
+            {square.isPossibleMove && !square.piece && (
+                <div className="move-indicator" style={{ 
                     position: 'absolute', 
-                    width: '16px', 
-                    height: '16px', 
+                    width: '30%', 
+                    height: '30%', 
                     borderRadius: '50%', 
                     background: 'rgba(0, 0, 0, 0.3)', 
-                    zIndex: 0 
+                    zIndex: 1
                 }} />
-            }
+            )}
+            
+            {/* Highlight for capture move */}
+            {isPossibleCapture && (
+                <div className="capture-indicator" style={{ 
+                    position: 'absolute', 
+                    width: '100%', 
+                    height: '100%', 
+                    border: '4px solid rgba(255, 0, 0, 0.7)', 
+                    boxSizing: 'border-box',
+                    zIndex: 1
+                }} />
+            )}
+            
+            {/* Coordinate labels (optional) */}
+            {square.x === 0 && (
+                <div style={{
+                    position: 'absolute',
+                    left: '2px',
+                    top: '2px',
+                    fontSize: '10px',
+                    color: black ? '#eeeed2' : '#769656',
+                    zIndex: 3
+                }}>
+                    {8 - square.y}
+                </div>
+            )}
+            
+            {square.y === 7 && (
+                <div style={{
+                    position: 'absolute',
+                    right: '2px',
+                    bottom: '2px',
+                    fontSize: '10px',
+                    color: black ? '#eeeed2' : '#769656',
+                    zIndex: 3
+                }}>
+                    {String.fromCharCode(97 + square.x)}
+                </div>
+            )}
         </div>
     );
 };
