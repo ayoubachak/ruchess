@@ -57,17 +57,40 @@ const BoardSquare: React.FC<SquareProps> = ({ square, onClick, isSelected = fals
     const getImage = (piece: Piece | null) => {
         if (!piece) return "";
         
-        // Handle cases where piece might be serialized differently
-        const pieceType = typeof piece.piece_type === 'number' ? piece.piece_type : 
-                         (piece.piece_type as any === 'Pawn' ? PieceType.Pawn :
-                          piece.piece_type as any === 'Rook' ? PieceType.Rook :
-                          piece.piece_type as any === 'Knight' ? PieceType.Knight :
-                          piece.piece_type as any === 'Bishop' ? PieceType.Bishop :
-                          piece.piece_type as any === 'Queen' ? PieceType.Queen :
-                          piece.piece_type as any === 'King' ? PieceType.King : PieceType.Pawn);
+        console.log("Piece being rendered:", piece); // Debug log
         
-        const color = typeof piece.color === 'number' ? piece.color :
-                     (piece.color as any === 'White' ? Color.White : Color.Black);
+        // Handle cases where piece might be serialized differently
+        let pieceType;
+        if (typeof piece.piece_type === 'number') {
+            pieceType = piece.piece_type;
+        } else if (typeof piece.piece_type === 'string') {
+            // Handle string values like 'Pawn', 'Rook', etc.
+            pieceType = 
+                piece.piece_type === 'Pawn' ? PieceType.Pawn :
+                piece.piece_type === 'Rook' ? PieceType.Rook :
+                piece.piece_type === 'Knight' ? PieceType.Knight :
+                piece.piece_type === 'Bishop' ? PieceType.Bishop :
+                piece.piece_type === 'Queen' ? PieceType.Queen :
+                piece.piece_type === 'King' ? PieceType.King : PieceType.Pawn;
+        } else {
+            // Fallback for other cases
+            pieceType = PieceType.Pawn;
+            console.error("Unknown piece type format:", piece.piece_type);
+        }
+        
+        // Handle color values which can be string 'WHITE'/'BLACK' or Color enum
+        let color;
+        if (typeof piece.color === 'number') {
+            color = piece.color;
+        } else if (typeof piece.color === 'string') {
+            // Handle string values 'WHITE' and 'BLACK'
+            color = piece.color === 'WHITE' ? Color.White : Color.Black;
+        } else {
+            // Assume it's already a Color enum
+            color = piece.color;
+        }
+        
+        console.log(`Using color: ${color}, pieceType: ${pieceType}`); // Debug log
         
         // Return the correct image based on piece type and color
         switch (`${color}_${pieceType}`) {
@@ -84,8 +107,13 @@ const BoardSquare: React.FC<SquareProps> = ({ square, onClick, isSelected = fals
             case `${Color.White}_${PieceType.Pawn}`: return WhitePawn;
             case `${Color.White}_${PieceType.Rook}`: return WhiteRook;
             default: 
-                console.log("Unknown piece:", piece);
-                return "";
+                console.log("Unknown piece combination:", `${color}_${pieceType}`);
+                // Fallback to default pieces based on color
+                if (color === Color.White) {
+                    return pieceType === PieceType.Pawn ? WhitePawn : WhiteKing;
+                } else {
+                    return pieceType === PieceType.Pawn ? BlackPawn : BlackKing;
+                }
         }
     };
     

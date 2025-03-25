@@ -23,10 +23,17 @@ app.get('/create-game', (req, res) => {
   // Get creator's color preference (default to WHITE if not specified)
   const creatorColor = req.query.playerColor?.toUpperCase() || 'WHITE';
   
+  console.log(`Creating room ${roomId} with creator color preference: ${creatorColor}`);
+  
   gameRooms.set(roomId, {
     id: roomId,
     players: [],
-    gameState: null,
+    gameState: {
+      board: createInitialBoard(),
+      current_player: 'WHITE', // Game always starts with white
+      game_over: false,
+      isCheck: false
+    },
     createdAt: Date.now(),
     creatorColor: creatorColor // Store the creator's color preference
   });
@@ -34,6 +41,47 @@ app.get('/create-game', (req, res) => {
   console.log(`Created room ${roomId} with creator color preference: ${creatorColor}`);
   res.json({ roomId });
 });
+
+// Helper function to create initial board
+function createInitialBoard() {
+  // Create an 8x8 board with null pieces
+  const board = Array(8).fill(null).map(() => Array(8).fill(null).map(() => ({ piece: null })));
+  
+  // Setup initial pieces
+  // Pawns
+  for (let i = 0; i < 8; i++) {
+    board[1][i] = { piece: { piece_type: 'Pawn', color: 'BLACK' } };
+    board[6][i] = { piece: { piece_type: 'Pawn', color: 'WHITE' } };
+  }
+  
+  // Rooks
+  board[0][0] = { piece: { piece_type: 'Rook', color: 'BLACK' } };
+  board[0][7] = { piece: { piece_type: 'Rook', color: 'BLACK' } };
+  board[7][0] = { piece: { piece_type: 'Rook', color: 'WHITE' } };
+  board[7][7] = { piece: { piece_type: 'Rook', color: 'WHITE' } };
+  
+  // Knights
+  board[0][1] = { piece: { piece_type: 'Knight', color: 'BLACK' } };
+  board[0][6] = { piece: { piece_type: 'Knight', color: 'BLACK' } };
+  board[7][1] = { piece: { piece_type: 'Knight', color: 'WHITE' } };
+  board[7][6] = { piece: { piece_type: 'Knight', color: 'WHITE' } };
+  
+  // Bishops
+  board[0][2] = { piece: { piece_type: 'Bishop', color: 'BLACK' } };
+  board[0][5] = { piece: { piece_type: 'Bishop', color: 'BLACK' } };
+  board[7][2] = { piece: { piece_type: 'Bishop', color: 'WHITE' } };
+  board[7][5] = { piece: { piece_type: 'Bishop', color: 'WHITE' } };
+  
+  // Queens
+  board[0][3] = { piece: { piece_type: 'Queen', color: 'BLACK' } };
+  board[7][3] = { piece: { piece_type: 'Queen', color: 'WHITE' } };
+  
+  // Kings
+  board[0][4] = { piece: { piece_type: 'King', color: 'BLACK' } };
+  board[7][4] = { piece: { piece_type: 'King', color: 'WHITE' } };
+  
+  return board;
+}
 
 // Game room data validation middleware
 const validateRoom = (socket, next) => {

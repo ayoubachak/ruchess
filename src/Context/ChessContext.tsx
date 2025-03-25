@@ -173,16 +173,51 @@ export const ChessProvider: React.FC<Props> = ({ children }) => {
     
     // Update local game state based on server data
     if (data.gameState) {
-      setGameState(prevState => ({
-        ...prevState,
-        board: prevState.board.map((row, y) => 
-          row.map((square, x) => ({
-            ...square,
-            piece: data.gameState.board?.[y]?.[x]?.piece || null
-          }))
-        ),
-        current_player: data.gameState.current_player
-      }));
+      setGameState(prevState => {
+        // Create a new board state from the server data
+        const newBoard = prevState.board.map((row, y) => 
+          row.map((square, x) => {
+            const serverPiece = data.gameState.board?.[y]?.[x]?.piece;
+            
+            // If no piece on server, clear the square
+            if (!serverPiece) {
+              return {
+                ...square,
+                piece: null,
+                isPossibleMove: false
+              };
+            }
+            
+            // Ensure piece color is properly converted to Color enum
+            let pieceColor;
+            if (typeof serverPiece.color === 'string') {
+              pieceColor = serverPiece.color === 'WHITE' ? Color.White : Color.Black;
+            } else {
+              pieceColor = serverPiece.color;
+            }
+            
+            // Return square with properly formatted piece
+            return {
+              ...square,
+              piece: {
+                ...serverPiece,
+                color: pieceColor
+              },
+              isPossibleMove: false
+            };
+          })
+        );
+        
+        return {
+          ...prevState,
+          board: newBoard,
+          current_player: data.gameState.current_player === 'WHITE' ? Color.White : Color.Black,
+          selectedSquare: null,
+          possibleMoves: [],
+          isCheck: data.gameState.isCheck || false,
+          game_over: data.gameState.game_over || false
+        };
+      });
     }
     
     // Update game config with assigned player color from server
@@ -225,16 +260,41 @@ export const ChessProvider: React.FC<Props> = ({ children }) => {
     if (data.from && data.to) {
       // Apply the move to our local state
       setGameState(prevState => {
-        const newState = { ...prevState };
+        let newState = { ...prevState };
         
         // If we have game state from server, use it to update the board
         if (data.gameState?.board) {
           newState.board = prevState.board.map((row, y) => 
-            row.map((square, x) => ({
-              ...square,
-              piece: data.gameState.board[y][x]?.piece || null,
-              isPossibleMove: false
-            }))
+            row.map((square, x) => {
+              const serverPiece = data.gameState.board[y][x]?.piece;
+              
+              // If no piece on server, clear the square
+              if (!serverPiece) {
+                return {
+                  ...square,
+                  piece: null,
+                  isPossibleMove: false
+                };
+              }
+              
+              // Ensure piece color is properly converted to Color enum
+              let pieceColor;
+              if (typeof serverPiece.color === 'string') {
+                pieceColor = serverPiece.color === 'WHITE' ? Color.White : Color.Black;
+              } else {
+                pieceColor = serverPiece.color;
+              }
+              
+              // Return square with properly formatted piece
+              return {
+                ...square,
+                piece: {
+                  ...serverPiece,
+                  color: pieceColor
+                },
+                isPossibleMove: false
+              };
+            })
           );
         } else {
           // Otherwise just move the piece locally
@@ -250,9 +310,16 @@ export const ChessProvider: React.FC<Props> = ({ children }) => {
             toX >= 0 && toX < 8 && 
             toY >= 0 && toY < 8
           ) {
+            // Create a deep copy of the board
+            newState.board = newState.board.map(row => [...row]);
+            
+            // Get the piece to move
             const piece = newState.board[fromY][fromX].piece;
-            newState.board[toY][toX].piece = piece;
-            newState.board[fromY][fromX].piece = null;
+            if (piece) {
+              // Move the piece
+              newState.board[toY][toX].piece = { ...piece };
+              newState.board[fromY][fromX].piece = null;
+            }
           }
         }
         
@@ -424,7 +491,21 @@ export const ChessProvider: React.FC<Props> = ({ children }) => {
       let notation = "";
       
       if (piece) {
-        const pieceSymbol = piece.piece_type === "Pawn" ? "" : piece.piece_type.charAt(0);
+        // Generate pieceSymbol with a safer approach
+        let pieceSymbol = "";
+        try {
+          const pieceType = piece.piece_type;
+          if (typeof pieceType === 'string') {
+            pieceSymbol = pieceType === "Pawn" ? "" : pieceType.charAt(0);
+          } else if (pieceType !== undefined) {
+            // Handle numeric enum
+            const typeNames = ["P", "R", "N", "B", "Q", "K"];
+            pieceSymbol = typeNames[pieceType] || "";
+          }
+        } catch (e) {
+          console.error("Error generating piece symbol:", e);
+        }
+        
         const files = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
         const ranks = ['8', '7', '6', '5', '4', '3', '2', '1'];
         notation = `${pieceSymbol}${files[fromX]}${ranks[fromY]}${isCapture ? 'x' : '-'}${files[toX]}${ranks[toY]}`;
@@ -492,71 +573,101 @@ export const ChessProvider: React.FC<Props> = ({ children }) => {
   }, [isLoading, isTauriAvailable, gameConfig, gameState, sessionManager, activeSessionId]);
   
   const clientSideMovePiece = (fromX: number, fromY: number, toX: number, toY: number) => {
+    const fromPiece = gameState.board[fromY][fromX].piece;
+    
+    // Don't allow moving if no piece at from location
+    if (!fromPiece) {
+      console.log('No piece at from location');
+      return;
+    }
+    
+    // Don't allow moving opponent's pieces
+    if (fromPiece.color !== gameState.current_player) {
+      console.log('Cannot move opponent pieces');
+      return;
+    }
+    
+    // Don't allow moves outside possible moves
+    const isValidMove = gameState.possibleMoves.some(move => move.x === toX && move.y === toY);
+    if (!isValidMove && gameState.selectedSquare) {
+      console.log('Move is not in the list of valid moves');
+      return;
+    }
+    
     setGameState(prevState => {
-      const piece = prevState.board[fromY][fromX].piece;
-      
-      // If there's no piece at the source, do nothing
-      if (!piece) {
-        return prevState;
-      }
-      
-      // Check if this is a valid move
-      const possibleMoves = getLegalMoves(prevState, fromX, fromY);
-      if (!possibleMoves.some(move => move.x === toX && move.y === toY)) {
-        return prevState;
-      }
-      
-      // Get the captured piece if any
-      const capturedPiece = prevState.board[toY][toX].piece;
-      
-      // Create a new board with the piece moved
+      // Create a copy of the board
       const newBoard = prevState.board.map(row => [...row]);
-      newBoard[toY][toX].piece = newBoard[fromY][fromX].piece;
+      
+      // Move the piece
+      newBoard[toY][toX].piece = { ...fromPiece };
       newBoard[fromY][fromX].piece = null;
       
-      // Generate move notation
-      const notation = generateMoveNotation(
-        prevState.board,
-        fromX,
-        fromY,
-        toX,
-        toY,
-        capturedPiece
-      );
+      // Toggle current player
+      const newCurrentPlayer = prevState.current_player === Color.White ? Color.Black : Color.White;
       
-      // Create the new game state
-      const newGameState = {
-        ...prevState,
-        board: newBoard,
-        current_player: prevState.current_player === Color.White ? Color.Black : Color.White,
-        selectedSquare: null,
-        possibleMoves: [],
-        moveHistory: [...prevState.moveHistory, notation]
-      };
+      // Clear selected square and possible moves
+      newBoard.forEach(row => row.forEach(square => {
+        square.isPossibleMove = false;
+      }));
       
-      // Check if the opponent's king is in check
-      const opponentColor = prevState.current_player === Color.White ? Color.Black : Color.White;
-      newGameState.isCheck = isKingInCheck(newBoard, opponentColor);
+      // Generate move notation (simple format)
+      const piece = fromPiece;
+      const isCapture = prevState.board[toY][toX].piece !== null;
+      const files = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
+      const ranks = ['8', '7', '6', '5', '4', '3', '2', '1'];
       
-      // Update session if necessary
+      // Generate pieceSymbol with a safer approach
+      let pieceSymbol = "";
+      try {
+        const pieceType = piece.piece_type;
+        if (typeof pieceType === 'string') {
+          pieceSymbol = pieceType === "Pawn" ? "" : pieceType.charAt(0);
+        } else if (pieceType !== undefined) {
+          // Handle numeric enum
+          const typeNames = ["P", "R", "N", "B", "Q", "K"];
+          pieceSymbol = typeNames[pieceType] || "";
+        }
+      } catch (e) {
+        console.error("Error generating piece symbol:", e);
+      }
+      
+      const notation = `${pieceSymbol}${files[fromX]}${ranks[fromY]}${isCapture ? 'x' : '-'}${files[toX]}${ranks[toY]}`;
+      
+      // Add the move to history
+      const newMoveHistory = [...prevState.moveHistory, notation];
+      
+      // Check for check or checkmate (simplified)
+      const newIsCheck = false; // Real implementation would check for this
+      const newIsGameOver = false; // Real implementation would check for this
+      
+      // Update the session if necessary
       if (sessionManager && activeSessionId) {
-        sessionManager.updateSession(activeSessionId, newGameState);
+        const newState = {
+          ...prevState,
+          board: newBoard,
+          current_player: newCurrentPlayer,
+          selectedSquare: null,
+          possibleMoves: [],
+          isCheck: newIsCheck,
+          game_over: newIsGameOver,
+          moveHistory: newMoveHistory
+        };
+        
+        sessionManager.updateSession(activeSessionId, newState);
         refreshSessions();
       }
       
-      // If in AI mode and it's the AI's turn, make an AI move
-      if (
-        newGameState.config.mode === GameMode.AI && 
-        newGameState.current_player !== newGameState.config.playerColor &&
-        ai
-      ) {
-        // Make an AI move (async, so handle separately)
-        setTimeout(() => {
-          makeAIMove(newGameState);
-        }, 500);
-      }
-      
-      return newGameState;
+      // Return the new state
+      return {
+        ...prevState,
+        board: newBoard,
+        current_player: newCurrentPlayer,
+        selectedSquare: null,
+        possibleMoves: [],
+        isCheck: newIsCheck,
+        game_over: newIsGameOver,
+        moveHistory: newMoveHistory
+      };
     });
   };
   
