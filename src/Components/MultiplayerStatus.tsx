@@ -1,4 +1,7 @@
 import React from 'react';
+import { Color } from '../types';
+import { GameMode } from '../services/game/GameState';
+import { useChess } from '../Context/ChessContext';
 
 interface MultiplayerStatusProps {
     networkStatus: 'disconnected' | 'connecting' | 'connected';
@@ -6,52 +9,72 @@ interface MultiplayerStatusProps {
         id: string;
         players: number;
         isCreator: boolean;
+        allPlayers: any[];
     } | null;
 }
 
 const MultiplayerStatus: React.FC<MultiplayerStatusProps> = ({ networkStatus, roomInfo }) => {
-    const copyRoomLink = () => {
-        if (!roomInfo) return;
-        
-        const roomLink = `${window.location.origin}/join/${roomInfo.id}`;
-        navigator.clipboard.writeText(roomLink)
-            .then(() => {
-                alert('Room link copied to clipboard!');
-            })
-            .catch(err => {
-                console.error('Failed to copy room link:', err);
-                alert(`Use this room ID to invite a friend: ${roomInfo.id}`);
-            });
+    const { gameState, gameConfig, copyRoomLink } = useChess();
+
+    // Check if it's the current player's turn
+    const isMyTurn = gameState.current_player === gameConfig.playerColor;
+    
+    const getStatusText = () => {
+        switch (networkStatus) {
+            case 'disconnected':
+                return 'Disconnected from server';
+            case 'connecting':
+                return 'Connecting to game server...';
+            case 'connected':
+                if (!roomInfo) return 'Connected, but no room info';
+                
+                // If both players are connected
+                if (roomInfo.players === 2) {
+                    return `Game in progress - ${roomInfo.players} players connected`;
+                }
+                
+                // If waiting for opponent
+                return `Waiting for opponent to join - Room ID: ${roomInfo.id}`;
+        }
+    };
+    
+    const handleCopyRoomLink = async () => {
+        try {
+            await copyRoomLink();
+            alert('Room link copied to clipboard!');
+        } catch (error) {
+            console.error('Failed to copy room link:', error);
+            // Show the room ID as fallback
+            if (roomInfo?.id) {
+                alert(`Share this room ID with your opponent: ${roomInfo.id}`);
+            }
+        }
     };
     
     return (
         <div className="multiplayer-status">
-            <div className={`network-status ${networkStatus}`}>
-                {networkStatus === 'connected' ? 
-                    '🟢 Connected' : 
-                    (networkStatus === 'connecting' ? '🟠 Connecting...' : '🔴 Disconnected')}
+            <div className={`status-indicator ${networkStatus}`}>
+                {getStatusText()}
             </div>
             
-            {roomInfo && (
-                <div className="room-info">
-                    <div className="room-id">
-                        Room: {roomInfo.id.substring(0, 8)}...
-                        <button 
-                            className="copy-button"
-                            onClick={copyRoomLink}
-                            title="Copy room link"
-                        >
-                            📋
-                        </button>
-                    </div>
-                    <div className="player-count">
-                        Players: {roomInfo.players}/2
-                        {roomInfo.players < 2 && roomInfo.isCreator && (
-                            <span className="waiting-message"> (Waiting for opponent)</span>
-                        )}
-                    </div>
+            {networkStatus === 'connected' && roomInfo?.players === 1 && (
+                <button 
+                    className="copy-link-button"
+                    onClick={handleCopyRoomLink}
+                >
+                    Copy Invite Link
+                </button>
+            )}
+            
+            {networkStatus === 'connected' && roomInfo?.players === 2 && (
+                <div className={`turn-indicator ${isMyTurn ? 'your-turn' : 'opponent-turn'}`}>
+                    {isMyTurn ? 'Your turn' : 'Waiting for opponent...'}
                 </div>
             )}
+            
+            <div className="player-info">
+                You are playing as: {gameConfig.playerColor === Color.White ? 'White' : 'Black'}
+            </div>
         </div>
     );
 };

@@ -104,20 +104,36 @@ const Chessboard: React.FC = () => {
             return; // Not your turn
         }
         
-        if (gameState && selectSquare) {
-            // If a square is already selected and the new click is on a possible move square
-            if (gameState.selectedSquare && gameState.possibleMoves.some(move => move.x === x && move.y === y)) {
-                // Move the piece
-                movePiece(
-                    gameState.selectedSquare.x, 
-                    gameState.selectedSquare.y, 
-                    x, 
-                    y
-                );
-            } else {
-                // Otherwise just select the square (will calculate moves if needed)
-                selectSquare(x, y);
-            }
+        if (!gameState) return;
+        
+        const clickedSquare = gameState.board[y][x];
+        const isPossibleMove = gameState.possibleMoves.some(move => move.x === x && move.y === y);
+        
+        // Case 1: Clicking on a possible move destination - execute the move
+        if (gameState.selectedSquare && isPossibleMove) {
+            console.log("Moving piece to possible move destination");
+            movePiece(
+                gameState.selectedSquare.x, 
+                gameState.selectedSquare.y, 
+                x, 
+                y
+            );
+            return;
+        }
+        
+        // Case 2: Clicking on own piece - select it and show possible moves
+        if (clickedSquare.piece && clickedSquare.piece.color === gameState.current_player) {
+            console.log("Selecting piece and showing possible moves");
+            selectSquare(x, y);
+            return;
+        }
+        
+        // Case 3: Clicking on an empty square or opponent's piece when no move is possible
+        // Just clear the selection
+        if (gameState.selectedSquare) {
+            console.log("Clearing selection");
+            selectSquare(null, null); // Send null to clear selection
+            return;
         }
     };
     

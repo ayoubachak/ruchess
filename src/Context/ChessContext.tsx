@@ -37,9 +37,10 @@ interface ChessContextType {
     id: string;
     players: number;
     isCreator: boolean;
+    allPlayers: string[];
   } | null;
   // Game actions
-  selectSquare: (x: number, y: number) => void;
+  selectSquare: (x: number | null, y: number | null) => void;
   movePiece: (fromX: number, fromY: number, toX: number, toY: number) => void;
   resetGame: () => void;
   startNewGame: (config: GameConfig) => void;
@@ -74,6 +75,7 @@ export const ChessProvider: React.FC<Props> = ({ children }) => {
     id: string;
     players: number;
     isCreator: boolean;
+    allPlayers: string[];
   } | null>(null);
   
   // Sessions state
@@ -124,6 +126,7 @@ export const ChessProvider: React.FC<Props> = ({ children }) => {
     socketService.on('player-left', handlePlayerLeft);
     socketService.on('connect', handleConnect);
     socketService.on('disconnect', handleDisconnect);
+    socketService.on('turn-update', handleTurnUpdate);
     
     // Initialize with a blank state but don't create session yet
     setGameState({
@@ -145,6 +148,7 @@ export const ChessProvider: React.FC<Props> = ({ children }) => {
       socketService.off('player-left', handlePlayerLeft);
       socketService.off('connect', handleConnect);
       socketService.off('disconnect', handleDisconnect);
+      socketService.off('turn-update', handleTurnUpdate);
     };
   }, [checkTauriAvailable]);
   
@@ -181,12 +185,23 @@ export const ChessProvider: React.FC<Props> = ({ children }) => {
       }));
     }
     
+    // Update game config with assigned player color from server
+    if (data.playerColor) {
+      const color = data.playerColor === 'WHITE' ? Color.White : Color.Black;
+      console.log(`Server assigned player color: ${color}`)
+      setGameConfig(prevConfig => ({
+        ...prevConfig,
+        playerColor: color
+      }));
+    }
+    
     // Update room info
-    if (data.roomId && data.players) {
+    if (data.roomId) {
       setRoomInfo(prevInfo => ({
         ...(prevInfo || { isCreator: false }),
         id: data.roomId,
-        players: data.players
+        players: data.players || 0,
+        allPlayers: data.allPlayers || []
       }));
     }
   }, []);
@@ -204,20 +219,21 @@ export const ChessProvider: React.FC<Props> = ({ children }) => {
   }, []);
   
   const handleOpponentMove = useCallback((data: any) => {
-    console.log("Opponent move", data);
+    console.log("Opponent move received", data);
     
     // Update the board with the opponent's move
-    if (data.from && data.to && data.gameState) {
+    if (data.from && data.to) {
       // Apply the move to our local state
       setGameState(prevState => {
         const newState = { ...prevState };
         
-        // If we have gameState from server, use that
-        if (data.gameState.board) {
+        // If we have game state from server, use it to update the board
+        if (data.gameState?.board) {
           newState.board = prevState.board.map((row, y) => 
             row.map((square, x) => ({
               ...square,
-              piece: data.gameState.board[y][x].piece || null
+              piece: data.gameState.board[y][x]?.piece || null,
+              isPossibleMove: false
             }))
           );
         } else {
@@ -240,18 +256,32 @@ export const ChessProvider: React.FC<Props> = ({ children }) => {
           }
         }
         
-        // Update current player
-        newState.current_player = data.gameState.current_player || 
-          (prevState.current_player === Color.White ? Color.Black : Color.White);
+        // Always toggle the current player after an opponent's move
+        newState.current_player = prevState.current_player === Color.White ? Color.Black : Color.White;
+        
+        // Clear any selected square and possible moves
+        newState.selectedSquare = null;
+        newState.possibleMoves = [];
         
         // Update other game state properties
-        newState.isCheck = data.gameState.isCheck || false;
-        newState.game_over = data.gameState.game_over || false;
+        newState.isCheck = data.gameState?.isCheck || false;
+        newState.game_over = data.gameState?.game_over || false;
+        
+        // Add move to history if provided
+        if (data.notation) {
+          newState.moveHistory = [...prevState.moveHistory, data.notation];
+        }
+        
+        // Update the session if necessary
+        if (sessionManager && activeSessionId) {
+          sessionManager.updateSession(activeSessionId, newState);
+          refreshSessions();
+        }
         
         return newState;
       });
     }
-  }, []);
+  }, [sessionManager, activeSessionId]);
   
   const handlePlayerLeft = useCallback((data: any) => {
     console.log("Player left", data);
@@ -272,9 +302,38 @@ export const ChessProvider: React.FC<Props> = ({ children }) => {
     }
   }, [gameConfig.mode]);
   
+  // Handle turn updates from server
+  const handleTurnUpdate = useCallback((data: any) => {
+    console.log("Turn update received:", data);
+    
+    if (data.currentPlayer) {
+      // Update the current player based on server data
+      setGameState(prevState => ({
+        ...prevState,
+        current_player: data.currentPlayer === 'WHITE' ? Color.White : Color.Black
+      }));
+    }
+  }, []);
+  
   // Game actions
-  const selectSquare = useCallback((x: number, y: number) => {
+  const selectSquare = useCallback((x: number | null, y: number | null) => {
     if (isLoading) return;
+    
+    // If null coordinates are provided, clear the selection
+    if (x === null || y === null) {
+      setGameState(prevState => ({
+        ...prevState,
+        selectedSquare: null,
+        possibleMoves: [],
+        board: prevState.board.map(row => 
+          row.map(square => ({
+            ...square,
+            isPossibleMove: false
+          }))
+        )
+      }));
+      return;
+    }
     
     // Use Tauri backend when available
     if (isTauriAvailable) {
@@ -326,44 +385,9 @@ export const ChessProvider: React.FC<Props> = ({ children }) => {
       
       // If clicking on a possible move destination with a piece selected, move the piece
       if (prevState.selectedSquare && prevState.possibleMoves.some(move => move.x === x && move.y === y)) {
-        // Execute the move on the client side
-        const fromX = prevState.selectedSquare.x;
-        const fromY = prevState.selectedSquare.y;
-        const capturedPiece = prevState.board[y][x].piece;
-        
-        // Create a new board with the piece moved
-        const newBoard = prevState.board.map(row => [...row]);
-        newBoard[y][x].piece = newBoard[fromY][fromX].piece;
-        newBoard[fromY][fromX].piece = null;
-        
-        // Clear possible moves highlighting
-        newBoard.forEach(row => row.forEach(square => square.isPossibleMove = false));
-        
-        // Generate move notation
-        const notation = generateMoveNotation(
-          prevState.board,
-          fromX,
-          fromY,
-          x,
-          y,
-          capturedPiece
-        );
-        
-        // Check if after this move, the opponent's king is in check
-        const newGameState = {
-          ...prevState,
-          board: newBoard,
-          current_player: prevState.current_player === Color.White ? Color.Black : Color.White,
-          selectedSquare: null,
-          possibleMoves: [],
-          moveHistory: [...prevState.moveHistory, notation]
-        };
-        
-        // Check if the opponent's king is in check
-        const opponentColor = prevState.current_player === Color.White ? Color.Black : Color.White;
-        newGameState.isCheck = isKingInCheck(newBoard, opponentColor);
-        
-        return newGameState;
+        // This case is now handled in handleSquareClick in ChessBoard.tsx
+        // which will call movePiece directly
+        return prevState;
       }
       
       // If clicking on a non-possible move, clear selection
@@ -392,13 +416,53 @@ export const ChessProvider: React.FC<Props> = ({ children }) => {
         return;
       }
       
+      // Generate simplified notation for the move
+      const from = { x: fromX, y: fromY };
+      const to = { x: toX, y: toY };
+      const piece = gameState.board[fromY][fromX].piece;
+      const isCapture = gameState.board[toY][toX].piece !== null;
+      let notation = "";
+      
+      if (piece) {
+        const pieceSymbol = piece.piece_type === "Pawn" ? "" : piece.piece_type.charAt(0);
+        const files = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
+        const ranks = ['8', '7', '6', '5', '4', '3', '2', '1'];
+        notation = `${pieceSymbol}${files[fromX]}${ranks[fromY]}${isCapture ? 'x' : '-'}${files[toX]}${ranks[toY]}`;
+      }
+      
+      // Make the move locally
+      const newGameState = { ...gameState };
+      
+      // Move the piece
+      newGameState.board = newGameState.board.map(row => [...row]);
+      newGameState.board[toY][toX].piece = newGameState.board[fromY][fromX].piece;
+      newGameState.board[fromY][fromX].piece = null;
+      
+      // Toggle current player
+      newGameState.current_player = gameState.current_player === Color.White ? Color.Black : Color.White;
+      
+      // Clear selection
+      newGameState.selectedSquare = null;
+      newGameState.possibleMoves = [];
+      
+      // Update move history
+      if (notation) {
+        newGameState.moveHistory = [...gameState.moveHistory, notation];
+      }
+      
+      // Update local state first for immediate feedback
+      setGameState(newGameState);
+      
       // Send move to the server
       socketService.emit('move', {
-        from: { x: fromX, y: fromY },
-        to: { x: toX, y: toY },
-        gameState: gameState,
+        from,
+        to,
+        notation,
+        gameState: newGameState,
         playerColor: gameState.current_player
       });
+      
+      return;
     }
     
     // Use Tauri backend when available
@@ -666,18 +730,19 @@ export const ChessProvider: React.FC<Props> = ({ children }) => {
     try {
       setNetworkStatus('connecting');
       
-      // Create a new room on the server
-      const roomId = await socketService.createRoom();
+      // Create a new room on the server with color preference
+      const roomId = await socketService.createRoom(playerColor);
       
       // Set room info
       setRoomInfo({
         id: roomId,
         players: 1,
-        isCreator: true
+        isCreator: true,
+        allPlayers: []
       });
       
-      // Connect to the socket server
-      socketService.connect(roomId);
+      // Connect to the socket server with color preference
+      socketService.connect(roomId, playerColor);
       
       // Update game config
       const config = {
@@ -721,20 +786,23 @@ export const ChessProvider: React.FC<Props> = ({ children }) => {
     try {
       setNetworkStatus('connecting');
       
-      // Connect to the socket server
-      socketService.connect(roomId);
+      // Connect to the socket server with optional color preference
+      // (server will assign the appropriate color, usually opposite of creator)
+      socketService.connect(roomId, playerColor);
       
       // Set room info
       setRoomInfo({
         id: roomId,
         players: 0, // Will be updated when connected
-        isCreator: false
+        isCreator: false,
+        allPlayers: []
       });
       
-      // Update game config
+      // Update game config with temporary color
+      // This will be updated with the correct color assigned by the server
       const config = {
         mode: GameMode.MULTIPLAYER,
-        playerColor: playerColor, // This may be assigned by the server
+        playerColor: playerColor, // This will be updated by server assignment
         gameId: roomId
       };
       

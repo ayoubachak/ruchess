@@ -34,6 +34,42 @@ pub fn get_game_state() -> Result<GameState, String> {
 #[tauri::command]
 pub fn select_square(x: usize, y: usize) -> Result<GameState, String> {
     let mut state = GAME_STATE.lock().map_err(|_| "Failed to lock game state".to_string())?;
+    
+    // Handle multiplayer mode separately - selections are handled by the client
+    if state.config.mode == GameMode::MULTIPLAYER {
+        let pos = Position::new(x, y);
+        let current_player = state.current_player.clone();
+        
+        // Check if this is the player's own piece
+        if let Some(piece) = state.board.get_piece(pos) {
+            if piece.color == current_player {
+                // Calculate possible moves and update game state
+                let moves = state.board.calculate_moves_for(pos);
+                state.selected_square = Some(pos);
+                state.possible_moves = moves;
+            } else {
+                // Clear selection if clicking on opponent's piece
+                state.selected_square = None;
+                state.possible_moves.clear();
+            }
+        } else {
+            // Check if this is a possible move for the selected piece
+            if let Some(selected) = state.selected_square {
+                if state.possible_moves.contains(&pos) {
+                    // Move the piece
+                    let _ = state.move_piece_from(selected, pos);
+                } else {
+                    // Clear selection if clicking on an empty square that's not a possible move
+                    state.selected_square = None;
+                    state.possible_moves.clear();
+                }
+            }
+        }
+        
+        return Ok(state.clone());
+    }
+    
+    // For other modes, use the existing logic
     let pos = Position::new(x, y);
     
     // Calculate possible moves and update game state
