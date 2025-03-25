@@ -1,69 +1,114 @@
-# RU Chess - Tauri + React + TypeScript Chess Application
+# Chess Game
 
-A modern chess application built with Tauri, React, and TypeScript.
+A modern chess application built with React and Tauri, featuring local gameplay, AI opponents, and multiplayer capabilities.
+
+## Features
+
+- **Local Game Mode**: Play chess with a friend on the same device
+- **AI Mode** (Desktop version only): Challenge the computer with adjustable difficulty levels
+- **Multiplayer Mode**: Play online against other players
+- **Session Management**: Create and manage multiple game sessions
+
+## Technology Stack
+
+- **Frontend**: React, TypeScript, Vite
+- **Backend**: Node.js, Express, Socket.io
+- **Desktop Application**: Tauri (Rust)
 
 ## Prerequisites
 
-Before running the project, ensure you have the following installed:
+- Node.js 16+
+- Rust (for desktop version)
+- npm or yarn
 
-- Node.js and npm
-- Rust and Cargo
-- System dependencies for Tauri (see below)
+## Installation
 
-## System Dependencies (Ubuntu/Debian)
+1. Clone the repository:
+   ```
+   git clone https://github.com/yourusername/ruchess.git
+   cd ruchess
+   ```
 
-For Ubuntu/Debian-based systems, run the following commands to install the required dependencies:
+2. Install frontend dependencies:
+   ```
+   npm install
+   ```
 
-```bash
-# Update system packages
-sudo apt update
-
-# Install Tauri dependencies
-sudo apt install libwebkit2gtk-4.1-dev build-essential curl wget libssl-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev libjavascriptcoregtk-4.1-dev libsoup2.4-dev webkit2gtk-driver
-
-# Create symbolic links for pkg-config files (Ubuntu 24.04+ specific)
-sudo ln -s /usr/lib/x86_64-linux-gnu/pkgconfig/javascriptcoregtk-4.1.pc /usr/lib/x86_64-linux-gnu/pkgconfig/javascriptcoregtk-4.0.pc
-sudo ln -s /usr/lib/x86_64-linux-gnu/pkgconfig/webkit2gtk-4.1.pc /usr/lib/x86_64-linux-gnu/pkgconfig/webkit2gtk-4.0.pc
-sudo ln -s /usr/lib/x86_64-linux-gnu/pkgconfig/webkit2gtk-web-extension-4.1.pc /usr/lib/x86_64-linux-gnu/pkgconfig/webkit2gtk-web-extension-4.0.pc
-
-# Create symbolic links for shared libraries (Ubuntu 24.04+ specific)
-sudo ln -s /usr/lib/x86_64-linux-gnu/libwebkit2gtk-4.1.so /usr/lib/x86_64-linux-gnu/libwebkit2gtk-4.0.so
-sudo ln -s /usr/lib/x86_64-linux-gnu/libjavascriptcoregtk-4.1.so /usr/lib/x86_64-linux-gnu/libjavascriptcoregtk-4.0.so
-
-# Set PKG_CONFIG_PATH environment variable
-export PKG_CONFIG_PATH=/usr/lib/x86_64-linux-gnu/pkgconfig:$PKG_CONFIG_PATH
-```
+3. Install server dependencies:
+   ```
+   cd server
+   npm install
+   cd ..
+   ```
 
 ## Running the Application
 
-1. Clone the repository
-2. Install dependencies:
-```bash
-npm install
+### Web Version (No AI capabilities)
+
+To run the web version with multiplayer functionality:
+
 ```
-3. Run the development server:
-```bash
+npm run start-all
+```
+
+This will start both the React frontend on port 3000 and the multiplayer server on port 3002.
+
+### Desktop Version (Full functionality)
+
+To run the desktop version with AI capabilities:
+
+```
 npm run tauri dev
 ```
 
-This will start both the React frontend and the Tauri backend.
+This will start the Tauri application with the full feature set including AI gameplay.
 
 ## Building for Production
 
-To build the application for production:
+### Web Version
 
-```bash
+```
+npm run build
+```
+
+### Desktop Version
+
+```
 npm run tauri build
 ```
 
-This will create executable packages in the `src-tauri/target/release/bundle` directory.
+This will create executable applications for your operating system in the `src-tauri/target/release` directory.
 
-## Project Structure
+## Game Modes
 
-- `src/` - React frontend code
-- `src-tauri/` - Rust backend code for Tauri
-- `src-tauri/src/game/` - Chess game logic implementation
+### Local Game
 
-## Recommended IDE Setup
+Play against another player on the same device, taking turns to make moves.
 
-- [VS Code](https://code.visualstudio.com/) + [Tauri](https://marketplace.visualstudio.com/items?itemName=tauri-apps.tauri-vscode) + [rust-analyzer](https://marketplace.visualstudio.com/items?itemName=rust-lang.rust-analyzer)
+### AI Game (Desktop only)
+
+Challenge the computer at three difficulty levels:
+- **Easy**: Makes random valid moves
+- **Medium**: Prioritizes captures and basic tactics
+- **Hard**: Uses advanced evaluation and strategy
+
+### Multiplayer
+
+Create a new game and share the link with your opponent, or join an existing game with a room ID.
+
+## Development
+
+### Project Structure
+
+- `/src` - React frontend
+- `/src/services` - Game services and logic
+- `/server` - Multiplayer server
+- `/src-tauri` - Rust backend for desktop version
+
+## License
+
+MIT
+
+## Credits
+
+Created by [Your Name]

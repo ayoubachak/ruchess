@@ -3,7 +3,8 @@ import Square from './Square';
 import GameSetup from './GameSetup';
 import { useChess } from '../Context/ChessContext';
 import { Color, Position } from '../types';
-import { GameMode, Difficulty } from '../Context/ChessContext';
+import { GameMode, Difficulty } from '../services/game/GameState';
+import MultiplayerStatus from './MultiplayerStatus';
 
 const Chessboard: React.FC = () => {
     const { 
@@ -11,16 +12,31 @@ const Chessboard: React.FC = () => {
         gameConfig,
         isLoading,
         isTauriAvailable,
+        networkStatus,
+        roomInfo,
         selectSquare,
         resetGame,
         startNewGame,
         undoMove,
-        movePiece
+        movePiece,
+        leaveMultiplayerGame,
+        sessions
     } = useChess();
     
-    const [showNewGameOptions, setShowNewGameOptions] = useState(false);
+    // Show game options on first load if no active game is in progress
+    const [showNewGameOptions, setShowNewGameOptions] = useState(() => {
+        // Show the options panel if no game sessions exist or only default one exists
+        return sessions.length === 0;
+    });
     const [isOverlayClosing, setIsOverlayClosing] = useState(false);
     const [boardElements, setBoardElements] = useState<JSX.Element[]>([]);
+    
+    // Show game setup when there are no sessions
+    useEffect(() => {
+        if (sessions.length === 0 && !showNewGameOptions && !isOverlayClosing) {
+            setShowNewGameOptions(true);
+        }
+    }, [sessions, showNewGameOptions, isOverlayClosing]);
     
     // Handle closing the overlay with animation
     const handleCloseOverlay = () => {
@@ -60,6 +76,10 @@ const Chessboard: React.FC = () => {
         }
     }, [gameState, isLoading]);
     
+    // Check if current player is "me" in multiplayer mode
+    const isMyTurn = gameConfig.mode !== GameMode.MULTIPLAYER || 
+        (gameState.current_player === gameConfig.playerColor);
+    
     if (isLoading) {
         return <div className="loading-chess">Loading chessboard...</div>;
     }
@@ -79,6 +99,11 @@ const Chessboard: React.FC = () => {
 
     // Handle square clicks - now delegated to the context
     const handleSquareClick = (x: number, y: number) => {
+        // In multiplayer mode, prevent moves if it's not your turn
+        if (gameConfig.mode === GameMode.MULTIPLAYER && !isMyTurn) {
+            return; // Not your turn
+        }
+        
         if (gameState && selectSquare) {
             // If a square is already selected and the new click is on a possible move square
             if (gameState.selectedSquare && gameState.possibleMoves.some(move => move.x === x && move.y === y)) {
@@ -96,29 +121,29 @@ const Chessboard: React.FC = () => {
         }
     };
     
-    // Handle starting a new game with AI
-    const handleStartAIGame = (difficulty: Difficulty) => {
-        startNewGame({
-            mode: GameMode.AI,
-            difficulty,
-            playerColor: Color.White,
-        });
-        setShowNewGameOptions(false);
-    };
+    // Handle board orientation based on player color in multiplayer or AI mode
+    const shouldFlipBoard = gameConfig.mode !== GameMode.LOCAL && 
+        gameConfig.playerColor === Color.Black;
     
-    // Handle starting a new local game
-    const handleStartLocalGame = () => {
-        startNewGame({
-            mode: GameMode.LOCAL,
-        });
-        setShowNewGameOptions(false);
-    };
+    // Get the board class with potential flip
+    const boardClass = `chess-board ${shouldFlipBoard ? 'flipped' : ''}`;
+    
+    // Get the current player displayed text
+    const currentPlayerText = (() => {
+        let text = `Current player: ${gameState.current_player === Color.White ? 'White' : 'Black'}`;
+        
+        if (gameConfig.mode === GameMode.MULTIPLAYER) {
+            text += isMyTurn ? ' (Your turn)' : ' (Opponent\'s turn)';
+        }
+        
+        return text;
+    })();
 
     return (
         <div className="chess-board-container">
             <div className="chess-game-info">
                 <div className="current-player">
-                    Current player: {gameState.current_player === Color.White ? 'White' : 'Black'}
+                    {currentPlayerText}
                     {gameState.isCheck && <span className="check-indicator"> - CHECK!</span>}
                 </div>
                 
@@ -127,6 +152,13 @@ const Chessboard: React.FC = () => {
                         `AI (${gameConfig.difficulty})` : 
                         (gameConfig.mode === GameMode.MULTIPLAYER ? 'Multiplayer' : 'Local')}
                 </div>
+                
+                {gameConfig.mode === GameMode.MULTIPLAYER && (
+                    <MultiplayerStatus 
+                        networkStatus={networkStatus}
+                        roomInfo={roomInfo}
+                    />
+                )}
                 
                 {isTauriAvailable ? (
                     <div className="tauri-status connected">Connected to Tauri backend</div>
@@ -138,7 +170,7 @@ const Chessboard: React.FC = () => {
             <div className="game-controls">
                 <button 
                     className="control-button"
-                    onClick={() => setShowNewGameOptions(!showNewGameOptions)}
+                    onClick={() => setShowNewGameOptions(true)}
                 >
                     New Game
                 </button>
@@ -151,10 +183,23 @@ const Chessboard: React.FC = () => {
                 <button 
                     className="control-button"
                     onClick={undoMove}
-                    disabled={!gameState.moveHistory || gameState.moveHistory.length === 0}
+                    disabled={
+                        gameConfig.mode === GameMode.MULTIPLAYER ||
+                        !gameState.moveHistory || 
+                        gameState.moveHistory.length === 0
+                    }
                 >
                     Undo
                 </button>
+                
+                {gameConfig.mode === GameMode.MULTIPLAYER && (
+                    <button 
+                        className="control-button leave-game"
+                        onClick={leaveMultiplayerGame}
+                    >
+                        Leave Game
+                    </button>
+                )}
             </div>
             
             {showNewGameOptions && (
@@ -173,7 +218,7 @@ const Chessboard: React.FC = () => {
             )}
             
             <div
-                className="chess-board"
+                className={boardClass}
                 style={{
                     display: 'grid',
                     gridTemplateColumns: `repeat(${cols}, 50px)`,
@@ -203,4 +248,3 @@ const Chessboard: React.FC = () => {
 };
 
 export default Chessboard;
-

@@ -3,7 +3,7 @@ use serde::{Serialize, Deserialize};
 use super::board::BOARD_SIZE;
 
 
-#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum PieceType {
     Pawn, Rook, Knight, Bishop, Queen, King,
 }

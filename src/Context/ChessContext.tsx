@@ -1,981 +1,939 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/tauri';
 import { listen } from '@tauri-apps/api/event';
+
+// Import game state and services
+import { 
+  GameState, 
+  GameConfig, 
+  GameMode, 
+  Difficulty, 
+  initialState, 
+  createMockBoard 
+} from '../services/game/GameState';
+import { 
+  getLegalMoves, 
+  isKingInCheck, 
+  generateMoveNotation 
+} from '../services/game/GameRules';
+import { createChessAI, ChessAI } from '../services/ai/ChessAI';
+import { 
+  createGameSessionManager, 
+  GameSessionManager, 
+  GameSession 
+} from '../services/game/GameSessionManager';
+import socketService from '../services/SocketService';
+
+// Import types
 import { Color, Square, PieceType, Piece, Position } from '../types';
 
-// Game modes for future expansion
-export enum GameMode {
-  LOCAL = 'LOCAL',
-  AI = 'AI',
-  MULTIPLAYER = 'MULTIPLAYER'
-}
-
-// Game difficulty levels for AI mode
-export enum Difficulty {
-  EASY = 'EASY',
-  MEDIUM = 'MEDIUM',
-  HARD = 'HARD'
-}
-
-interface GameState {
-    board: Square[][];
-    current_player: Color;
-    game_over: boolean;
-    isCheck: boolean;
-    gameOverMessage: string;
-    moveHistory: string[]; // Store moves in algebraic notation for replay
-    selectedSquare: Position | null;
-    possibleMoves: Position[];
-}
-
-interface GameConfig {
-    mode: GameMode;
-    difficulty?: Difficulty;
-    playerColor?: Color; // For AI games, which color the player controls
-    gameId?: string; // For multiplayer games
-}
-
-// Default initial state with an 8x8 empty board
-const initialState: GameState = {
-    board: Array(8).fill(null).map((_, row) => 
-        Array(8).fill(null).map((_, col) => ({
-            x: col,
-            y: row,
-            piece: null,
-            isPossibleMove: false
-        }))
-    ),
-    current_player: Color.White,
-    game_over: false,
-    isCheck: false,
-    gameOverMessage: '',
-    moveHistory: [],
-    selectedSquare: null,
-    possibleMoves: []
-};
-
-// Default game configuration
-const defaultConfig: GameConfig = {
-    mode: GameMode.LOCAL
-};
-
-// Create a mock board with all pieces in starting positions for development mode
-const createMockBoard = (): Square[][] => {
-    // Start with empty board
-    const board = Array(8).fill(null).map((_, row) => 
-        Array(8).fill(null).map((_, col) => ({
-            x: col,
-            y: row,
-            piece: null,
-            isPossibleMove: false
-        }))
-    );
-    
-    // Set up pawns
-    for (let col = 0; col < 8; col++) {
-        // Black pawns on row 1
-        board[1][col].piece = {
-            piece_type: PieceType.Pawn,
-            color: Color.Black
-        };
-        
-        // White pawns on row 6
-        board[6][col].piece = {
-            piece_type: PieceType.Pawn,
-            color: Color.White
-        };
-    }
-    
-    // Set up other pieces
-    // Black pieces on row 0
-    board[0][0].piece = { piece_type: PieceType.Rook, color: Color.Black };
-    board[0][1].piece = { piece_type: PieceType.Knight, color: Color.Black };
-    board[0][2].piece = { piece_type: PieceType.Bishop, color: Color.Black };
-    board[0][3].piece = { piece_type: PieceType.Queen, color: Color.Black };
-    board[0][4].piece = { piece_type: PieceType.King, color: Color.Black };
-    board[0][5].piece = { piece_type: PieceType.Bishop, color: Color.Black };
-    board[0][6].piece = { piece_type: PieceType.Knight, color: Color.Black };
-    board[0][7].piece = { piece_type: PieceType.Rook, color: Color.Black };
-    
-    // White pieces on row 7
-    board[7][0].piece = { piece_type: PieceType.Rook, color: Color.White };
-    board[7][1].piece = { piece_type: PieceType.Knight, color: Color.White };
-    board[7][2].piece = { piece_type: PieceType.Bishop, color: Color.White };
-    board[7][3].piece = { piece_type: PieceType.Queen, color: Color.White };
-    board[7][4].piece = { piece_type: PieceType.King, color: Color.White };
-    board[7][5].piece = { piece_type: PieceType.Bishop, color: Color.White };
-    board[7][6].piece = { piece_type: PieceType.Knight, color: Color.White };
-    board[7][7].piece = { piece_type: PieceType.Rook, color: Color.White };
-    
-    return board;
-};
-
 interface ChessContextType {
-    gameState: GameState;
-    gameConfig: GameConfig;
-    isLoading: boolean;
-    isTauriAvailable: boolean;
-    // Game actions
-    selectSquare: (x: number, y: number) => void;
-    movePiece: (fromX: number, fromY: number, toX: number, toY: number) => void;
-    resetGame: () => void;
-    startNewGame: (config: GameConfig) => void;
-    undoMove: () => void;
+  gameState: GameState;
+  gameConfig: GameConfig;
+  isLoading: boolean;
+  isTauriAvailable: boolean;
+  networkStatus: 'disconnected' | 'connecting' | 'connected';
+  roomInfo: {
+    id: string;
+    players: number;
+    isCreator: boolean;
+  } | null;
+  // Game actions
+  selectSquare: (x: number, y: number) => void;
+  movePiece: (fromX: number, fromY: number, toX: number, toY: number) => void;
+  resetGame: () => void;
+  startNewGame: (config: GameConfig) => void;
+  undoMove: () => void;
+  // Multiplayer actions
+  createMultiplayerGame: (playerColor: Color) => Promise<string>;
+  joinMultiplayerGame: (roomId: string, playerColor?: Color) => void;
+  leaveMultiplayerGame: () => void;
+  copyRoomLink: () => Promise<void>;
+  // Session management
+  sessions: GameSession[];
+  activeSessionId: string | null;
+  createSession: (config: GameConfig) => Promise<string>;
+  switchSession: (sessionId: string) => void;
+  endSession: (sessionId: string) => void;
 }
 
 const ChessContext = createContext<ChessContextType | undefined>(undefined);
 
 interface Props {
-    children: React.ReactNode;
+  children: React.ReactNode;
 }
 
 export const ChessProvider: React.FC<Props> = ({ children }) => {
-    const [gameState, setGameState] = useState<GameState>(initialState);
-    const [gameConfig, setGameConfig] = useState<GameConfig>(defaultConfig);
-    const [isLoading, setIsLoading] = useState<boolean>(true);
-    const [isTauriAvailable, setIsTauriAvailable] = useState<boolean>(false);
+  // State
+  const [gameState, setGameState] = useState<GameState>(initialState);
+  const [gameConfig, setGameConfig] = useState<GameConfig>({ mode: GameMode.LOCAL });
+  const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [isTauriAvailable, setIsTauriAvailable] = useState<boolean>(false);
+  const [networkStatus, setNetworkStatus] = useState<'disconnected' | 'connecting' | 'connected'>('disconnected');
+  const [roomInfo, setRoomInfo] = useState<{
+    id: string;
+    players: number;
+    isCreator: boolean;
+  } | null>(null);
+  
+  // Sessions state
+  const [sessions, setSessions] = useState<GameSession[]>([]);
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  
+  // Services
+  const [ai, setAI] = useState<ChessAI | null>(null);
+  const [sessionManager, setSessionManager] = useState<GameSessionManager | null>(null);
+  
+  // Function to check if Tauri is available
+  const checkTauriAvailable = useCallback(() => {
+    try {
+      return window && typeof window.__TAURI__ !== 'undefined';
+    } catch (e) {
+      console.error("Error checking Tauri availability:", e);
+      return false;
+    }
+  }, []);
+  
+  // Initialize services
+  useEffect(() => {
+    const tauri = checkTauriAvailable();
+    console.log("Tauri available:", tauri);
+    setIsTauriAvailable(tauri);
     
-    // Function to initialize and set up event listeners
-    useEffect(() => {
-        setIsLoading(true);
-        
-        const initializeChessBoard = async () => {
-            // More robust check for Tauri environment
-            const checkTauriAvailable = () => {
-                try {
-                    // Check if window.__TAURI__ is available (more reliable than __TAURI_IPC__)
-                    return window && typeof window.__TAURI__ !== 'undefined';
-                } catch (e) {
-                    console.error("Error checking Tauri availability:", e);
-                    return false;
-                }
-            };
-            
-            const tauriAvailable = checkTauriAvailable();
-            console.log("Tauri available:", tauriAvailable);
-            setIsTauriAvailable(tauriAvailable);
-            
-            if (tauriAvailable) {
-                try {
-                    // If in Tauri environment, get game state from backend
-                    console.log("Fetching game state from Tauri backend...");
-                    const initialGameState = await invoke<GameState>('get_game_state');
-                    console.log("Got initial game state from Tauri:", initialGameState);
-                    
-                    // First create a basic state with default values in case the returned state is incomplete
-                    const defaultState = {
-                        ...initialState,
-                        board: createMockBoard()
-                    };
-                    
-                    // Then merge in any valid data from the backend
-                    const formattedGameState = {
-                        ...defaultState,
-                        ...initialGameState
-                    };
-                    
-                    // Make sure the board is properly formatted
-                    if (initialGameState.board) {
-                        // Handle different possible formats from the backend
-                        if (initialGameState.board.board) {
-                            // If board is nested inside a board property (Rust struct serialization)
-                            formattedGameState.board = formatBoardFromBackend(initialGameState.board.board);
-                        } else if (Array.isArray(initialGameState.board)) {
-                            if (initialGameState.board.length > 0 && Array.isArray(initialGameState.board[0])) {
-                                formattedGameState.board = formatBoardFromBackend(initialGameState.board);
-                            }
-                        }
-                    }
-                    
-                    setGameState(formattedGameState);
-                    
-                    // Set up event listeners for game state updates from Rust
-                    await setupEventListeners();
-                } catch (error) {
-                    console.error('Failed to load initial game state from Tauri:', error);
-                    fallbackToMockData();
-                } finally {
-                    setIsLoading(false);
-                }
-            } else {
-                // If not in Tauri environment, use mock data for development
-                fallbackToMockData();
-            }
-        };
-        
-        const fallbackToMockData = () => {
-            console.log('Using mock data for development');
-            // Create a mock chess board with pieces
-            const mockBoard = createMockBoard();
-            setGameState(prevState => ({
-                ...prevState,
-                board: mockBoard
-            }));
-            
-            // Set a small timeout to simulate API call
-            setTimeout(() => {
-                setIsLoading(false);
-            }, 300);
-        };
-        
-        initializeChessBoard();
-        
-        // Cleanup function to remove event listeners
-        return () => {
-            // Cleanup code for event listeners would go here
-        };
-    }, []);
+    // Initialize AI service
+    const aiService = createChessAI(tauri);
+    setAI(aiService);
     
-    // Setup event listeners for game updates from Rust backend
-    const setupEventListeners = async () => {
-        if (!isTauriAvailable) return;
-        
-        try {
-            console.log("Setting up event listeners for Tauri events");
-            
-            // Listen for game state updates
-            await listen('game-state-updated', (event) => {
-                console.log("Received game-state-updated event:", event);
-                const updatedState = event.payload as GameState;
-                
-                // Apply the same formatting as initial state to ensure consistency
-                const formattedState = {
-                    ...gameState,
-                    ...updatedState,
-                    board: updatedState.board && updatedState.board.board 
-                        ? formatBoardFromBackend(updatedState.board.board)
-                        : gameState.board
-                };
-                
-                setGameState(formattedState);
-            });
-            
-            // Listen for multiplayer events
-            await listen('opponent-move', (event) => {
-                console.log("Received opponent-move event:", event);
-                const updatedState = event.payload as GameState;
-                
-                // Apply the same formatting as initial state to ensure consistency
-                const formattedState = {
-                    ...gameState,
-                    ...updatedState,
-                    board: updatedState.board && updatedState.board.board 
-                        ? formatBoardFromBackend(updatedState.board.board)
-                        : gameState.board
-                };
-                
-                setGameState(formattedState);
-            });
-            
-            // Listen for AI move events
-            await listen('ai-move', (event) => {
-                console.log("Received ai-move event:", event);
-                const updatedState = event.payload as GameState;
-                
-                // Apply the same formatting as initial state to ensure consistency
-                const formattedState = {
-                    ...gameState,
-                    ...updatedState,
-                    board: updatedState.board && updatedState.board.board 
-                        ? formatBoardFromBackend(updatedState.board.board)
-                        : gameState.board
-                };
-                
-                setGameState(formattedState);
-            });
-            
-            console.log("Event listeners set up successfully");
-        } catch (error) {
-            console.error('Failed to set up event listeners:', error);
-        }
+    // Initialize session manager
+    const sessionMgr = createGameSessionManager(tauri);
+    setSessionManager(sessionMgr);
+    
+    // Listen for AI moves
+    if (tauri) {
+      aiService.initialize((newGameState) => {
+        console.log("AI move received", newGameState);
+        setGameState(newGameState);
+        setIsLoading(false);
+      }).catch(err => console.error("Failed to initialize AI service", err));
+    }
+    
+    // Setup socket event listeners for multiplayer
+    socketService.on('game-state', handleGameStateUpdate);
+    socketService.on('player-joined', handlePlayerJoined);
+    socketService.on('opponent-move', handleOpponentMove);
+    socketService.on('player-left', handlePlayerLeft);
+    socketService.on('connect', handleConnect);
+    socketService.on('disconnect', handleDisconnect);
+    
+    // Initialize with a blank state but don't create session yet
+    setGameState({
+      ...initialState,
+      board: createMockBoard()
+    });
+    
+    // Mark as loaded to remove loading screen
+    setIsLoading(false);
+    
+    return () => {
+      // Clean up listeners
+      aiService.cleanup();
+      
+      // Clean up socket listeners
+      socketService.off('game-state', handleGameStateUpdate);
+      socketService.off('player-joined', handlePlayerJoined);
+      socketService.off('opponent-move', handleOpponentMove);
+      socketService.off('player-left', handlePlayerLeft);
+      socketService.off('connect', handleConnect);
+      socketService.off('disconnect', handleDisconnect);
     };
+  }, [checkTauriAvailable]);
+  
+  // Socket event handlers
+  const handleConnect = useCallback(() => {
+    console.log("Connected to game server");
+    setNetworkStatus('connected');
+  }, []);
+  
+  const handleDisconnect = useCallback(() => {
+    console.log("Disconnected from game server");
+    setNetworkStatus('disconnected');
     
-    // Function to select a square on the board
-    const selectSquare = (x: number, y: number) => {
-        if (gameState.game_over) return;
-        
-        // Process in Rust backend when available
-        if (isTauriAvailable) {
-            invoke<{board: any, possibleMoves: Position[]}>('select_square', { x, y })
-                .then((response) => {
-                    console.log("Select square response:", response);
-                    // Update game state with formatted board data
-                    let newBoardData;
-                    if (response.board && response.board.board) {
-                        newBoardData = formatBoardFromBackend(response.board.board);
-                    } else {
-                        // If the format is unexpected, keep current board but clear highlights
-                        newBoardData = gameState.board.map(row =>
-                            row.map(square => ({ ...square, isPossibleMove: false }))
-                        );
-                    }
-                    
-                    // Mark possible moves
-                    if (Array.isArray(response.possibleMoves)) {
-                        response.possibleMoves.forEach(move => {
-                            if (move.x >= 0 && move.x < 8 && move.y >= 0 && move.y < 8) {
-                                newBoardData[move.y][move.x].isPossibleMove = true;
-                            }
-                        });
-                    }
-                    
-                    setGameState(prevState => ({
-                        ...prevState,
-                        board: newBoardData,
-                        selectedSquare: { x, y },
-                        possibleMoves: response.possibleMoves || []
-                    }));
-                })
-                .catch(error => {
-                    console.error('Error selecting square:', error);
-                    // Fallback to client-side logic if backend call fails
-                    handleClientSideSelection(x, y);
-                });
-            return;
-        }
-        
-        // Fallback for development without Tauri
-        handleClientSideSelection(x, y);
-    };
+    // Clear room info if we were in a room
+    if (roomInfo) {
+      setRoomInfo(null);
+    }
+  }, [roomInfo]);
+  
+  const handleGameStateUpdate = useCallback((data: any) => {
+    console.log("Game state update received", data);
     
-    // Client-side square selection logic to use when Tauri is not available
-    const handleClientSideSelection = (x: number, y: number) => {
-        console.log(`Selecting square at (${x}, ${y})`);
+    // Update local game state based on server data
+    if (data.gameState) {
+      setGameState(prevState => ({
+        ...prevState,
+        board: prevState.board.map((row, y) => 
+          row.map((square, x) => ({
+            ...square,
+            piece: data.gameState.board?.[y]?.[x]?.piece || null
+          }))
+        ),
+        current_player: data.gameState.current_player
+      }));
+    }
+    
+    // Update room info
+    if (data.roomId && data.players) {
+      setRoomInfo(prevInfo => ({
+        ...(prevInfo || { isCreator: false }),
+        id: data.roomId,
+        players: data.players
+      }));
+    }
+  }, []);
+  
+  const handlePlayerJoined = useCallback((data: any) => {
+    console.log("Player joined", data);
+    
+    // Update room info with new player count
+    if (data.players) {
+      setRoomInfo(prevInfo => prevInfo ? {
+        ...prevInfo,
+        players: data.players
+      } : null);
+    }
+  }, []);
+  
+  const handleOpponentMove = useCallback((data: any) => {
+    console.log("Opponent move", data);
+    
+    // Update the board with the opponent's move
+    if (data.from && data.to && data.gameState) {
+      // Apply the move to our local state
+      setGameState(prevState => {
+        const newState = { ...prevState };
         
-        // If a square is already selected and the new click is a valid move
-        if (gameState.selectedSquare) {
-            // Check if clicked square is in possible moves
-            const isValidMove = gameState.possibleMoves.some(
-                move => move.x === x && move.y === y
-            );
-            
-            // If clicking on a valid move square, move the piece
-            if (isValidMove) {
-                console.log(`Moving piece from (${gameState.selectedSquare.x}, ${gameState.selectedSquare.y}) to (${x}, ${y})`);
-                movePiece(gameState.selectedSquare.x, gameState.selectedSquare.y, x, y);
-                return;
-            }
-            
-            // Clear selection if clicking the same square
-            if (gameState.selectedSquare.x === x && gameState.selectedSquare.y === y) {
-                console.log('Deselecting square');
-                clearSelection();
-                return;
-            }
+        // If we have gameState from server, use that
+        if (data.gameState.board) {
+          newState.board = prevState.board.map((row, y) => 
+            row.map((square, x) => ({
+              ...square,
+              piece: data.gameState.board[y][x].piece || null
+            }))
+          );
+        } else {
+          // Otherwise just move the piece locally
+          const fromX = data.from.x;
+          const fromY = data.from.y;
+          const toX = data.to.x;
+          const toY = data.to.y;
+          
+          // Make sure the positions are valid
+          if (
+            fromX >= 0 && fromX < 8 && 
+            fromY >= 0 && fromY < 8 && 
+            toX >= 0 && toX < 8 && 
+            toY >= 0 && toY < 8
+          ) {
+            const piece = newState.board[fromY][fromX].piece;
+            newState.board[toY][toX].piece = piece;
+            newState.board[fromY][fromX].piece = null;
+          }
         }
         
-        // Check if the square contains a piece of the current player
-        const square = gameState.board[y][x];
-        if (!square.piece || square.piece.color !== gameState.current_player) {
-            console.log('Square is empty or has opponent piece, clearing selection');
-            clearSelection();
-            return;
-        }
+        // Update current player
+        newState.current_player = data.gameState.current_player || 
+          (prevState.current_player === Color.White ? Color.Black : Color.White);
         
-        console.log(`Piece found: ${square.piece.piece_type} (${square.piece.color}), calculating possible moves`);
+        // Update other game state properties
+        newState.isCheck = data.gameState.isCheck || false;
+        newState.game_over = data.gameState.game_over || false;
         
-        // Calculate possible moves locally for the selected piece
-        const possibleMoves = calculatePieceMoves(gameState.board, x, y);
-        console.log(`Found ${possibleMoves.length} possible moves`, possibleMoves);
-        
-        // Update board with possible moves highlighted
-        const newBoard = gameState.board.map(row =>
-            row.map(square => ({ ...square, isPossibleMove: false }))
-        );
-        
-        possibleMoves.forEach(move => {
-            if (move.x >= 0 && move.x < 8 && move.y >= 0 && move.y < 8) {
-                newBoard[move.y][move.x].isPossibleMove = true;
-            }
+        return newState;
+      });
+    }
+  }, []);
+  
+  const handlePlayerLeft = useCallback((data: any) => {
+    console.log("Player left", data);
+    
+    // Update room info with new player count
+    if (data.players) {
+      setRoomInfo(prevInfo => prevInfo ? {
+        ...prevInfo,
+        players: data.players
+      } : null);
+    }
+    
+    // If we're in a multiplayer game, handle the opponent leaving
+    if (gameConfig.mode === GameMode.MULTIPLAYER) {
+      // Show a message to the user
+      const message = "Your opponent has left the game.";
+      alert(message);
+    }
+  }, [gameConfig.mode]);
+  
+  // Game actions
+  const selectSquare = useCallback((x: number, y: number) => {
+    if (isLoading) return;
+    
+    // Use Tauri backend when available
+    if (isTauriAvailable) {
+      setIsLoading(true);
+      invoke<GameState>('select_square', { x, y })
+        .then(newGameState => {
+          setGameState(newGameState);
+          setIsLoading(false);
+        })
+        .catch(error => {
+          console.error('Error selecting square:', error);
+          setIsLoading(false);
+          // Fall back to client-side implementation
+          clientSideSelectSquare(x, y);
         });
+    } else {
+      // Client-side implementation
+      clientSideSelectSquare(x, y);
+    }
+  }, [isLoading, isTauriAvailable]);
+  
+  const clientSideSelectSquare = (x: number, y: number) => {
+    setGameState(prevState => {
+      const piece = prevState.board[y][x].piece;
+      
+      // If clicking on an empty square with no selection, do nothing
+      if (!piece && !prevState.selectedSquare) {
+        return prevState;
+      }
+      
+      // If clicking on own piece, select it and show moves
+      if (piece && piece.color === prevState.current_player) {
+        // Calculate legal moves for this piece
+        const possibleMoves = getLegalMoves(prevState, x, y);
         
-        setGameState({
-            ...gameState,
-            board: newBoard,
-            selectedSquare: { x, y },
-            possibleMoves
-        });
-    };
-    
-    // Clear the current selection
-    const clearSelection = () => {
-        const newBoard = gameState.board.map(row =>
-            row.map(square => ({ ...square, isPossibleMove: false }))
-        );
+        // Return new state with this square selected and possible moves highlighted
+        return {
+          ...prevState,
+          selectedSquare: { x, y },
+          possibleMoves,
+          board: prevState.board.map((row, ry) => 
+            row.map((square, rx) => ({
+              ...square,
+              isPossibleMove: possibleMoves.some(move => move.x === rx && move.y === ry)
+            }))
+          )
+        };
+      }
+      
+      // If clicking on a possible move destination with a piece selected, move the piece
+      if (prevState.selectedSquare && prevState.possibleMoves.some(move => move.x === x && move.y === y)) {
+        // Execute the move on the client side
+        const fromX = prevState.selectedSquare.x;
+        const fromY = prevState.selectedSquare.y;
+        const capturedPiece = prevState.board[y][x].piece;
         
-        setGameState({
-            ...gameState,
-            board: newBoard,
-            selectedSquare: null,
-            possibleMoves: []
-        });
-    };
-    
-    // Move a piece on the board
-    const movePiece = (fromX: number, fromY: number, toX: number, toY: number) => {
-        if (gameState.game_over) return;
-        
-        // Process move in Rust backend when available
-        if (isTauriAvailable) {
-            invoke<GameState>('move_piece', { fromX, fromY, toX, toY })
-                .then(updatedState => {
-                    console.log("Move piece response:", updatedState);
-                    
-                    // Format the board data properly
-                    const formattedGameState = {
-                        ...updatedState,
-                        board: updatedState.board && updatedState.board.board ? 
-                            formatBoardFromBackend(updatedState.board.board) : 
-                            gameState.board // Keep current board if response is malformed
-                    };
-                    
-                    setGameState(formattedGameState);
-                })
-                .catch(error => {
-                    console.error('Error moving piece:', error);
-                    // Fallback to client-side move if backend call fails
-                    handleClientSideMove(fromX, fromY, toX, toY);
-                });
-            return;
-        }
-        
-        // Fallback move logic for development without Tauri
-        handleClientSideMove(fromX, fromY, toX, toY);
-    };
-    
-    // Client-side move logic to use when Tauri is not available
-    const handleClientSideMove = (fromX: number, fromY: number, toX: number, toY: number) => {
-        console.log(`Processing move from (${fromX}, ${fromY}) to (${toX}, ${toY})`);
-        
-        // Check if the move is valid
-        const possibleMoves = calculatePieceMoves(gameState.board, fromX, fromY);
-        const isValidMove = possibleMoves.some(move => move.x === toX && move.y === toY);
-        
-        if (!isValidMove) {
-            console.error("Invalid move attempted");
-            return;
-        }
-        
-        // Deep clone the board to avoid mutation
-        const newBoard = JSON.parse(JSON.stringify(gameState.board));
-        
-        // Store the captured piece (for detecting checkmate)
-        const capturedPiece = newBoard[toY][toX].piece;
-        
-        // Get the moving piece
-        const movingPiece = newBoard[fromY][fromX].piece;
-        if (!movingPiece) {
-            console.error("No piece found at source position");
-            return;
-        }
-        
-        // Move the piece
-        newBoard[toY][toX].piece = movingPiece;
+        // Create a new board with the piece moved
+        const newBoard = prevState.board.map(row => [...row]);
+        newBoard[y][x].piece = newBoard[fromY][fromX].piece;
         newBoard[fromY][fromX].piece = null;
         
-        // Clear possible moves highlights
+        // Clear possible moves highlighting
         newBoard.forEach(row => row.forEach(square => square.isPossibleMove = false));
         
-        // Switch player turn
-        const newCurrentPlayer = gameState.current_player === Color.White ? Color.Black : Color.White;
+        // Generate move notation
+        const notation = generateMoveNotation(
+          prevState.board,
+          fromX,
+          fromY,
+          x,
+          y,
+          capturedPiece
+        );
         
-        // Generate algebraic notation for the move
-        const notation = generateMoveNotation(fromX, fromY, toX, toY, capturedPiece);
-        
-        // Check if this is a game-ending move (king capture)
-        let gameOver = false;
-        let gameOverMessage = '';
-        
-        if (capturedPiece && capturedPiece.piece_type === PieceType.King) {
-            gameOver = true;
-            gameOverMessage = `${gameState.current_player === Color.White ? 'White' : 'Black'} wins by capturing the king!`;
-        }
+        // Check if after this move, the opponent's king is in check
+        const newGameState = {
+          ...prevState,
+          board: newBoard,
+          current_player: prevState.current_player === Color.White ? Color.Black : Color.White,
+          selectedSquare: null,
+          possibleMoves: [],
+          moveHistory: [...prevState.moveHistory, notation]
+        };
         
         // Check if the opponent's king is in check
-        const isInCheck = isKingInCheck(newBoard, newCurrentPlayer);
+        const opponentColor = prevState.current_player === Color.White ? Color.Black : Color.White;
+        newGameState.isCheck = isKingInCheck(newBoard, opponentColor);
         
-        console.log(`Move complete. New player: ${newCurrentPlayer}. Check: ${isInCheck}. Game over: ${gameOver}`);
-        
-        setGameState({
-            ...gameState,
-            board: newBoard,
-            current_player: newCurrentPlayer,
-            game_over: gameOver,
-            isCheck: isInCheck,
-            gameOverMessage: gameOverMessage,
-            moveHistory: [...gameState.moveHistory, notation],
-            selectedSquare: null,
-            possibleMoves: []
+        return newGameState;
+      }
+      
+      // If clicking on a non-possible move, clear selection
+      return {
+        ...prevState,
+        selectedSquare: null,
+        possibleMoves: [],
+        board: prevState.board.map(row => 
+          row.map(square => ({
+            ...square,
+            isPossibleMove: false
+          }))
+        )
+      };
+    });
+  };
+  
+  const movePiece = useCallback((fromX: number, fromY: number, toX: number, toY: number) => {
+    if (isLoading) return;
+    
+    // Handle multiplayer moves
+    if (gameConfig.mode === GameMode.MULTIPLAYER) {
+      // Make sure it's our turn
+      if (gameState.current_player !== gameConfig.playerColor) {
+        console.log("Not your turn");
+        return;
+      }
+      
+      // Send move to the server
+      socketService.emit('move', {
+        from: { x: fromX, y: fromY },
+        to: { x: toX, y: toY },
+        gameState: gameState,
+        playerColor: gameState.current_player
+      });
+    }
+    
+    // Use Tauri backend when available
+    if (isTauriAvailable) {
+      setIsLoading(true);
+      invoke<GameState>('move_piece', { fromX, fromY, toX, toY })
+        .then(newGameState => {
+          setGameState(newGameState);
+          setIsLoading(false);
+          
+          // If the session manager is available and we have an active session, update it
+          if (sessionManager && activeSessionId) {
+            sessionManager.updateSession(activeSessionId, newGameState);
+            refreshSessions();
+          }
+        })
+        .catch(error => {
+          console.error('Error moving piece:', error);
+          setIsLoading(false);
+          // Fall back to client-side implementation
+          clientSideMovePiece(fromX, fromY, toX, toY);
         });
-    };
+    } else {
+      // Client-side implementation
+      clientSideMovePiece(fromX, fromY, toX, toY);
+    }
+  }, [isLoading, isTauriAvailable, gameConfig, gameState, sessionManager, activeSessionId]);
+  
+  const clientSideMovePiece = (fromX: number, fromY: number, toX: number, toY: number) => {
+    setGameState(prevState => {
+      const piece = prevState.board[fromY][fromX].piece;
+      
+      // If there's no piece at the source, do nothing
+      if (!piece) {
+        return prevState;
+      }
+      
+      // Check if this is a valid move
+      const possibleMoves = getLegalMoves(prevState, fromX, fromY);
+      if (!possibleMoves.some(move => move.x === toX && move.y === toY)) {
+        return prevState;
+      }
+      
+      // Get the captured piece if any
+      const capturedPiece = prevState.board[toY][toX].piece;
+      
+      // Create a new board with the piece moved
+      const newBoard = prevState.board.map(row => [...row]);
+      newBoard[toY][toX].piece = newBoard[fromY][fromX].piece;
+      newBoard[fromY][fromX].piece = null;
+      
+      // Generate move notation
+      const notation = generateMoveNotation(
+        prevState.board,
+        fromX,
+        fromY,
+        toX,
+        toY,
+        capturedPiece
+      );
+      
+      // Create the new game state
+      const newGameState = {
+        ...prevState,
+        board: newBoard,
+        current_player: prevState.current_player === Color.White ? Color.Black : Color.White,
+        selectedSquare: null,
+        possibleMoves: [],
+        moveHistory: [...prevState.moveHistory, notation]
+      };
+      
+      // Check if the opponent's king is in check
+      const opponentColor = prevState.current_player === Color.White ? Color.Black : Color.White;
+      newGameState.isCheck = isKingInCheck(newBoard, opponentColor);
+      
+      // Update session if necessary
+      if (sessionManager && activeSessionId) {
+        sessionManager.updateSession(activeSessionId, newGameState);
+        refreshSessions();
+      }
+      
+      // If in AI mode and it's the AI's turn, make an AI move
+      if (
+        newGameState.config.mode === GameMode.AI && 
+        newGameState.current_player !== newGameState.config.playerColor &&
+        ai
+      ) {
+        // Make an AI move (async, so handle separately)
+        setTimeout(() => {
+          makeAIMove(newGameState);
+        }, 500);
+      }
+      
+      return newGameState;
+    });
+  };
+  
+  const makeAIMove = async (currentState: GameState) => {
+    if (!ai || currentState.game_over) return;
     
-    // Reset the game to initial state
-    const resetGame = () => {
-        // Process in Rust backend when available
-        if (isTauriAvailable) {
-            invoke<GameState>('reset_game')
-                .then(initialState => {
-                    console.log("Received reset game state:", initialState);
-                    
-                    // Format the board data properly just like in startNewGame
-                    const formattedGameState = {
-                        ...initialState,
-                        board: initialState.board && (initialState.board.board || Array.isArray(initialState.board)) ? 
-                            formatBoardFromBackend(initialState.board.board || initialState.board) : 
-                            createMockBoard() // Use mock board if response is malformed
-                    };
-                    
-                    setGameState(formattedGameState);
-                })
-                .catch(error => {
-                    console.error('Error resetting game:', error);
-                    // Fallback to client-side implementation if Tauri call fails
-                    fallbackToMockData();
-                });
-            return;
+    // Get the difficulty level
+    const difficulty = currentState.config.difficulty || Difficulty.MEDIUM;
+    
+    try {
+      // For Tauri, the AI move is handled by the backend and communicated through events
+      if (!isTauriAvailable) {
+        // Make the AI move in the client
+        const move = await ai.makeMove(currentState, difficulty);
+        
+        if (move) {
+          // Execute the move
+          clientSideMovePiece(move.from.x, move.from.y, move.to.x, move.to.y);
         }
-        
-        // Fallback for development without Tauri
-        fallbackToMockData();
-    };
+      }
+    } catch (error) {
+      console.error('Error making AI move:', error);
+    }
+  };
+  
+  const resetGame = useCallback(async () => {
+    if (isLoading) return;
     
-    // Start a new game with given configuration
-    const startNewGame = (config: GameConfig) => {
-        setGameConfig(config);
-        setIsLoading(true);
-        
-        // Process in Rust backend when available
-        if (isTauriAvailable) {
-            console.log("Starting new game with config:", config);
-            
-            // Fix: Pass the config object as a single parameter instead of individual properties
-            invoke<GameState>('start_new_game', { config })
-                .then(newGameState => {
-                    console.log("Received new game state:", newGameState);
-                    
-                    // Make sure we have a valid game state
-                    if (!newGameState) {
-                        console.error("Received empty game state from backend");
-                        fallbackToMockData();
-                        return;
-                    }
-                    
-                    // Format the board data properly
-                    const formattedGameState = {
-                        ...initialState, // Start with a clean slate
-                        ...newGameState, // Apply backend state properties
-                        board: newGameState.board && (newGameState.board.board || Array.isArray(newGameState.board)) ? 
-                            formatBoardFromBackend(newGameState.board.board || newGameState.board) : 
-                            createMockBoard() // Use mock board if response is malformed
-                    };
-                    
-                    setGameState(formattedGameState);
-                    setIsLoading(false);
-                })
-                .catch(error => {
-                    console.error('Error starting new game:', error);
-                    // Fallback to client-side implementation if Tauri call fails
-                    fallbackToMockData();
-                });
-            return;
-        }
-        
-        // Fallback for development without Tauri
-        fallbackToMockData();
-    };
-    
-    // Helper function to create a fallback game state
-    const fallbackToMockData = () => {
-        console.log('Falling back to mock data for game state');
-        // Create a mock chess board with pieces
-        const mockBoard = createMockBoard();
-        setGameState({
-            ...initialState,
-            board: mockBoard,
-            current_player: Color.White,
-            game_over: false,
-            isCheck: false,
-            gameOverMessage: '',
-            moveHistory: [],
-            selectedSquare: null,
-            possibleMoves: []
+    // Use Tauri backend when available
+    if (isTauriAvailable) {
+      setIsLoading(true);
+      invoke<GameState>('reset_game')
+        .then(newGameState => {
+          setGameState(newGameState);
+          setIsLoading(false);
+          
+          // Update the session if necessary
+          if (sessionManager && activeSessionId) {
+            sessionManager.updateSession(activeSessionId, newGameState);
+            refreshSessions();
+          }
+        })
+        .catch(error => {
+          console.error('Error resetting game:', error);
+          setIsLoading(false);
+          // Fall back to client-side implementation
+          clientSideResetGame();
         });
+    } else {
+      // Client-side implementation
+      clientSideResetGame();
+    }
+  }, [isLoading, isTauriAvailable, sessionManager, activeSessionId]);
+  
+  const clientSideResetGame = () => {
+    const newGameState = {
+      ...initialState,
+      board: createMockBoard(),
+      config: gameConfig
     };
     
-    // Undo the last move
-    const undoMove = () => {
-        // Process in Rust backend when available
-        if (isTauriAvailable) {
-            invoke<GameState>('undo_move')
-                .then(previousState => {
-                    setGameState(previousState);
-                })
-                .catch(error => {
-                    console.error('Error undoing move:', error);
-                });
-            return;
-        }
-        
-        // Simple fallback for development - not a full implementation
-        console.log('Undo not implemented in development mode');
-    };
+    setGameState(newGameState);
     
-    // Helper function to check if the king of a given color is in check (for development mode)
-    const isKingInCheck = (board: Square[][], color: Color): boolean => {
-        // Find the king
-        let kingX = -1;
-        let kingY = -1;
-        
-        for (let y = 0; y < 8; y++) {
-            for (let x = 0; x < 8; x++) {
-                const piece = board[y][x].piece;
-                if (piece && piece.piece_type === PieceType.King && piece.color === color) {
-                    kingX = x;
-                    kingY = y;
-                    break;
-                }
-            }
-            if (kingX !== -1) break;
-        }
-        
-        if (kingX === -1) return false;
-        
-        // Check if any opponent piece can attack the king
-        // This is a simplified check for development mode
-        const opponentColor = color === Color.White ? Color.Black : Color.White;
-        
-        for (let y = 0; y < 8; y++) {
-            for (let x = 0; x < 8; x++) {
-                const piece = board[y][x].piece;
-                if (piece && piece.color === opponentColor) {
-                    // Get possible moves for this opponent piece
-                    const moves = calculatePieceMoves(board, x, y);
-                    
-                    // If any move can reach the king's position, the king is in check
-                    if (moves.some(move => move.x === kingX && move.y === kingY)) {
-                        return true;
-                    }
-                }
-            }
-        }
-        
-        return false;
-    };
+    // Update the session if necessary
+    if (sessionManager && activeSessionId) {
+      sessionManager.updateSession(activeSessionId, newGameState);
+      refreshSessions();
+    }
+  };
+  
+  const startNewGame = useCallback(async (config: GameConfig): Promise<void> => {
+    // Validate configuration
+    if (config.mode === GameMode.AI && !isTauriAvailable) {
+        console.warn("AI mode requires Tauri, which is not available. Switching to LOCAL mode.");
+        config.mode = GameMode.LOCAL;
+    }
     
-    // Calculate possible moves for a piece (simplified for development)
-    const calculatePossibleMoves = (x: number, y: number): Position[] => {
-        return calculatePieceMoves(gameState.board, x, y);
-    };
+    setGameConfig(config);
+    setIsLoading(true);
     
-    // Helper function to calculate moves for a piece at a specific position
-    const calculatePieceMoves = (board: Square[][], x: number, y: number): Position[] => {
-        const moves: Position[] = [];
-        const square = board[y][x];
-        
-        if (!square || !square.piece) return [];
-        
-        const { piece_type, color } = square.piece;
-        const isWhite = color === Color.White;
-        
-        // Check if a position is valid and either empty or has an opponent's piece
-        const isValidTarget = (tx: number, ty: number): boolean => {
-            // Check bounds
-            if (tx < 0 || tx >= 8 || ty < 0 || ty >= 8) return false;
-            
-            const targetSquare = board[ty][tx];
-            
-            // Square is empty or has opponent's piece
-            return !targetSquare.piece || targetSquare.piece.color !== color;
-        };
-        
-        // Check if a position is valid for capture only (has opponent's piece)
-        const isValidCapture = (tx: number, ty: number): boolean => {
-            // Check bounds
-            if (tx < 0 || tx >= 8 || ty < 0 || ty >= 8) return false;
-            
-            const targetSquare = board[ty][tx];
-            
-            // Square has opponent's piece
-            return targetSquare.piece && targetSquare.piece.color !== color;
-        };
-        
-        // Check if a position is valid for movement only (is empty)
-        const isValidMove = (tx: number, ty: number): boolean => {
-            // Check bounds
-            if (tx < 0 || tx >= 8 || ty < 0 || ty >= 8) return false;
-            
-            const targetSquare = board[ty][tx];
-            
-            // Square is empty
-            return !targetSquare.piece;
-        };
-        
-        // Add position to moves if it's valid
-        const addIfValid = (tx: number, ty: number): boolean => {
-            if (isValidTarget(tx, ty)) {
-                moves.push({ x: tx, y: ty });
-                // Return true if the square is empty (can continue in this direction)
-                return !board[ty][tx].piece;
-            }
-            return false; // Stop in this direction
-        };
-        
-        switch (piece_type) {
-            case PieceType.Pawn:
-                // Pawns move differently based on color
-                const direction = isWhite ? -1 : 1; // White moves up, Black moves down
-                const startRow = isWhite ? 6 : 1;
-                
-                // Forward move (1 square)
-                if (isValidMove(x, y + direction)) {
-                    moves.push({ x, y: y + direction });
-                    
-                    // Initial 2-square move
-                    if (y === startRow && isValidMove(x, y + 2 * direction)) {
-                        moves.push({ x, y: y + 2 * direction });
-                    }
-                }
-                
-                // Captures (diagonally)
-                if (isValidCapture(x - 1, y + direction)) {
-                    moves.push({ x: x - 1, y: y + direction });
-                }
-                if (isValidCapture(x + 1, y + direction)) {
-                    moves.push({ x: x + 1, y: y + direction });
-                }
-                
-                break;
-                
-            case PieceType.Knight:
-                // Knights move in L-shapes: 2 squares in one direction, 1 square perpendicular
-                const knightMoves = [
-                    { dx: 2, dy: 1 }, { dx: 2, dy: -1 },
-                    { dx: -2, dy: 1 }, { dx: -2, dy: -1 },
-                    { dx: 1, dy: 2 }, { dx: 1, dy: -2 },
-                    { dx: -1, dy: 2 }, { dx: -1, dy: -2 }
-                ];
-                
-                for (const move of knightMoves) {
-                    const tx = x + move.dx;
-                    const ty = y + move.dy;
-                    if (isValidTarget(tx, ty)) {
-                        moves.push({ x: tx, y: ty });
-                    }
-                }
-                break;
-                
-            case PieceType.Bishop:
-                // Bishops move diagonally
-                // Check all four diagonal directions
-                // Up-right
-                for (let i = 1; i < 8; i++) {
-                    if (!addIfValid(x + i, y - i)) break;
-                }
-                // Up-left
-                for (let i = 1; i < 8; i++) {
-                    if (!addIfValid(x - i, y - i)) break;
-                }
-                // Down-right
-                for (let i = 1; i < 8; i++) {
-                    if (!addIfValid(x + i, y + i)) break;
-                }
-                // Down-left
-                for (let i = 1; i < 8; i++) {
-                    if (!addIfValid(x - i, y + i)) break;
-                }
-                break;
-                
-            case PieceType.Rook:
-                // Rooks move horizontally and vertically
-                // Check all four directions
-                // Right
-                for (let i = 1; i < 8; i++) {
-                    if (!addIfValid(x + i, y)) break;
-                }
-                // Left
-                for (let i = 1; i < 8; i++) {
-                    if (!addIfValid(x - i, y)) break;
-                }
-                // Down
-                for (let i = 1; i < 8; i++) {
-                    if (!addIfValid(x, y + i)) break;
-                }
-                // Up
-                for (let i = 1; i < 8; i++) {
-                    if (!addIfValid(x, y - i)) break;
-                }
-                break;
-                
-            case PieceType.Queen:
-                // Queens move like both rooks and bishops
-                // Diagonal moves (like Bishop)
-                // Up-right
-                for (let i = 1; i < 8; i++) {
-                    if (!addIfValid(x + i, y - i)) break;
-                }
-                // Up-left
-                for (let i = 1; i < 8; i++) {
-                    if (!addIfValid(x - i, y - i)) break;
-                }
-                // Down-right
-                for (let i = 1; i < 8; i++) {
-                    if (!addIfValid(x + i, y + i)) break;
-                }
-                // Down-left
-                for (let i = 1; i < 8; i++) {
-                    if (!addIfValid(x - i, y + i)) break;
-                }
-                
-                // Straight moves (like Rook)
-                // Right
-                for (let i = 1; i < 8; i++) {
-                    if (!addIfValid(x + i, y)) break;
-                }
-                // Left
-                for (let i = 1; i < 8; i++) {
-                    if (!addIfValid(x - i, y)) break;
-                }
-                // Down
-                for (let i = 1; i < 8; i++) {
-                    if (!addIfValid(x, y + i)) break;
-                }
-                // Up
-                for (let i = 1; i < 8; i++) {
-                    if (!addIfValid(x, y - i)) break;
-                }
-                break;
-                
-            case PieceType.King:
-                // Kings move one square in any direction
-                const kingMoves = [
-                    { dx: 1, dy: 0 }, { dx: 1, dy: 1 }, { dx: 0, dy: 1 }, { dx: -1, dy: 1 },
-                    { dx: -1, dy: 0 }, { dx: -1, dy: -1 }, { dx: 0, dy: -1 }, { dx: 1, dy: -1 }
-                ];
-                
-                for (const move of kingMoves) {
-                    const tx = x + move.dx;
-                    const ty = y + move.dy;
-                    if (isValidTarget(tx, ty)) {
-                        moves.push({ x: tx, y: ty });
-                    }
-                }
-                break;
-        }
-        
-        return moves;
-    };
+    // For multiplayer games, connect to the socket server
+    if (config.mode === GameMode.MULTIPLAYER && config.gameId) {
+        setNetworkStatus('connecting');
+        socketService.connect(config.gameId);
+    }
     
-    // Generate algebraic notation for a move (simplified)
-    const generateMoveNotation = (
-        fromX: number, 
-        fromY: number, 
-        toX: number, 
-        toY: number, 
-        capturedPiece: Piece | null
-    ): string => {
-        const files = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
-        const ranks = ['8', '7', '6', '5', '4', '3', '2', '1'];
+    // Process in Rust backend when available
+    if (isTauriAvailable) {
+        console.log("Starting new game with config:", config);
         
-        const piece = gameState.board[fromY][fromX].piece;
-        if (!piece) return '';
-        
-        let notation = '';
-        
-        // Add piece symbol (except for pawns)
-        if (piece.piece_type !== PieceType.Pawn) {
-            const symbols: Record<number, string> = {
-                [PieceType.Rook]: 'R',
-                [PieceType.Knight]: 'N',
-                [PieceType.Bishop]: 'B',
-                [PieceType.Queen]: 'Q',
-                [PieceType.King]: 'K'
-            };
-            notation += symbols[piece.piece_type];
-        }
-        
-        // Add starting position
-        notation += files[fromX] + ranks[fromY];
-        
-        // Add capture symbol if appropriate
-        if (capturedPiece) {
-            notation += 'x';
-        } else {
-            notation += '-';
-        }
-        
-        // Add ending position
-        notation += files[toX] + ranks[toY];
-        
-        return notation;
-    };
-
-    // Helper function to convert backend board format to frontend format
-    const formatBoardFromBackend = (backendBoard: any[][]): Square[][] => {
         try {
-            if (!Array.isArray(backendBoard) || backendBoard.length === 0) {
-                console.error("Invalid backend board format:", backendBoard);
-                return createMockBoard();
+            const newGameState = await invoke<GameState>('start_new_game', { config });
+            console.log("Received new game state:", newGameState);
+            
+            if (!newGameState) {
+                console.error("Received empty game state from backend");
+                clientSideStartNewGame(config);
+                return;
             }
             
-            return backendBoard.map((row, y) => 
-                row.map((cell, x) => {
-                    // Check if cell is a piece object or null
-                    let piece = null;
-                    if (cell) {
-                        if (typeof cell === 'object') {
-                            // Extract piece information from cell object
-                            if (cell.piece_type !== undefined && cell.color !== undefined) {
-                                piece = {
-                                    piece_type: cell.piece_type,
-                                    color: cell.color
-                                };
-                            } else if (cell.type !== undefined && cell.color !== undefined) {
-                                // Alternative naming that might be used in Rust
-                                piece = {
-                                    piece_type: cell.type,
-                                    color: cell.color
-                                };
-                            }
-                        }
-                    }
-                    
-                    return {
-                        x: x,
-                        y: y,
-                        piece: piece,
-                        isPossibleMove: false
-                    };
-                })
-            );
-        } catch (e) {
-            console.error("Error formatting board from backend:", e);
-            return createMockBoard();
+            setGameState(newGameState);
+            
+            // Create a new session if session manager is available
+            if (sessionManager) {
+                const sessionId = await sessionManager.createSession(config);
+                setActiveSessionId(sessionId);
+                refreshSessions();
+            }
+        } catch (error) {
+            console.error('Error starting new game:', error);
+            clientSideStartNewGame(config);
+        } finally {
+            setIsLoading(false);
         }
+    } else {
+        // Client-side implementation
+        clientSideStartNewGame(config);
+        setIsLoading(false);
     }
-
-    return (
-        <ChessContext.Provider 
-            value={{ 
-                gameState, 
-                gameConfig,
-                isLoading, 
-                isTauriAvailable,
-                selectSquare,
-                movePiece,
-                resetGame,
-                startNewGame,
-                undoMove
-            }}
-        >
-            {children}
-        </ChessContext.Provider>
-    );
+}, [isTauriAvailable, sessionManager]);
+  
+  const clientSideStartNewGame = (config: GameConfig) => {
+    console.log('Starting new game with client-side implementation', config);
+    const newGameState = {
+      ...initialState,
+      board: createMockBoard(),
+      config: config
+    };
+    
+    setGameState(newGameState);
+    
+    // Create a new session if session manager is available
+    if (sessionManager) {
+      sessionManager.createSession(config).then(sessionId => {
+        setActiveSessionId(sessionId);
+        refreshSessions();
+      });
+    }
+  };
+  
+  const undoMove = useCallback(async () => {
+    // Not allowed in multiplayer
+    if (gameConfig.mode === GameMode.MULTIPLAYER) {
+      console.log('Undo not available in multiplayer mode');
+      return;
+    }
+    
+    // Process in Rust backend when available
+    if (isTauriAvailable) {
+      try {
+        const previousState = await invoke<GameState>('undo_move');
+        setGameState(previousState);
+        
+        // Update the session if necessary
+        if (sessionManager && activeSessionId) {
+          sessionManager.updateSession(activeSessionId, previousState);
+          refreshSessions();
+        }
+      } catch (error) {
+        console.error('Error undoing move:', error);
+        // No fallback for undo in client-side implementation
+      }
+    } else {
+      // Client-side implementation would need a move history
+      console.log('Undo not implemented in client-side mode');
+    }
+  }, [gameConfig.mode, isTauriAvailable, sessionManager, activeSessionId]);
+  
+  // Multiplayer actions
+  const createMultiplayerGame = useCallback(async (playerColor: Color): Promise<string> => {
+    try {
+      setNetworkStatus('connecting');
+      
+      // Create a new room on the server
+      const roomId = await socketService.createRoom();
+      
+      // Set room info
+      setRoomInfo({
+        id: roomId,
+        players: 1,
+        isCreator: true
+      });
+      
+      // Connect to the socket server
+      socketService.connect(roomId);
+      
+      // Update game config
+      const config = {
+        mode: GameMode.MULTIPLAYER,
+        playerColor: playerColor,
+        gameId: roomId
+      };
+      
+      setGameConfig(config);
+      
+      // Start a new game with this configuration
+      if (isTauriAvailable) {
+        try {
+          const newGameState = await invoke<GameState>('start_new_game', { config });
+          setGameState(newGameState);
+          
+          // Create a new session for this multiplayer game
+          if (sessionManager) {
+            const sessionId = await sessionManager.createSession(config);
+            setActiveSessionId(sessionId);
+            refreshSessions();
+          }
+        } catch (error) {
+          console.error('Error starting multiplayer game:', error);
+          clientSideStartNewGame(config);
+        }
+      } else {
+        // In development mode without Tauri, just create a new game
+        clientSideStartNewGame(config);
+      }
+      
+      return roomId;
+    } catch (error) {
+      console.error('Error creating multiplayer game:', error);
+      setNetworkStatus('disconnected');
+      throw error;
+    }
+  }, [isTauriAvailable, sessionManager]);
+  
+  const joinMultiplayerGame = useCallback((roomId: string, playerColor?: Color) => {
+    try {
+      setNetworkStatus('connecting');
+      
+      // Connect to the socket server
+      socketService.connect(roomId);
+      
+      // Set room info
+      setRoomInfo({
+        id: roomId,
+        players: 0, // Will be updated when connected
+        isCreator: false
+      });
+      
+      // Update game config
+      const config = {
+        mode: GameMode.MULTIPLAYER,
+        playerColor: playerColor, // This may be assigned by the server
+        gameId: roomId
+      };
+      
+      setGameConfig(config);
+      
+      // Create a new session for this multiplayer game
+      if (sessionManager) {
+        sessionManager.createSession(config).then(sessionId => {
+          setActiveSessionId(sessionId);
+          refreshSessions();
+        });
+      }
+      
+      // The socket connection will handle receiving the game state
+    } catch (error) {
+      console.error('Error joining multiplayer game:', error);
+      setNetworkStatus('disconnected');
+    }
+  }, [sessionManager]);
+  
+  const leaveMultiplayerGame = useCallback(() => {
+    // Disconnect from the socket server
+    socketService.disconnect();
+    
+    // Reset network status
+    setNetworkStatus('disconnected');
+    
+    // Clear room info
+    setRoomInfo(null);
+    
+    // Reset to local game mode
+    const config = {
+      mode: GameMode.LOCAL
+    };
+    
+    setGameConfig(config);
+    
+    // Reset the game
+    resetGame();
+  }, [resetGame]);
+  
+  const copyRoomLink = useCallback(async (): Promise<void> => {
+    if (!roomInfo) {
+      throw new Error('No active room');
+    }
+    
+    const roomLink = `${window.location.origin}/join/${roomInfo.id}`;
+    
+    try {
+      await navigator.clipboard.writeText(roomLink);
+      console.log('Room link copied to clipboard');
+    } catch (error) {
+      console.error('Error copying room link:', error);
+      throw error;
+    }
+  }, [roomInfo]);
+  
+  // Session management
+  const createSession = useCallback(async (config: GameConfig): Promise<string> => {
+    if (!sessionManager) {
+        throw new Error('Session manager not initialized');
+    }
+    
+    // Validate configuration for non-Tauri environment
+    if (config.mode === GameMode.AI && !isTauriAvailable) {
+        console.warn("AI mode requires Tauri, which is not available. Switching to LOCAL mode.");
+        config.mode = GameMode.LOCAL;
+    }
+    
+    const sessionId = await sessionManager.createSession(config);
+    setActiveSessionId(sessionId);
+    refreshSessions();
+    
+    return sessionId;
+}, [sessionManager, isTauriAvailable]);
+  
+  const switchSession = useCallback((sessionId: string) => {
+    if (!sessionManager) {
+      throw new Error('Session manager not initialized');
+    }
+    
+    const success = sessionManager.switchSession(sessionId);
+    if (success) {
+      setActiveSessionId(sessionId);
+      
+      // Get the session and update our state
+      const session = sessionManager.getActiveSession();
+      if (session) {
+        setGameState(session.gameState);
+        setGameConfig(session.config);
+      }
+    }
+  }, [sessionManager]);
+  
+  const endSession = useCallback((sessionId: string) => {
+    if (!sessionManager) {
+      throw new Error('Session manager not initialized');
+    }
+    
+    const success = sessionManager.endSession(sessionId);
+    if (success) {
+      refreshSessions();
+      
+      // If this was the active session, get the new active session
+      if (sessionId === activeSessionId) {
+        const newActiveSession = sessionManager.getActiveSession();
+        if (newActiveSession) {
+          setActiveSessionId(newActiveSession.id);
+          setGameState(newActiveSession.gameState);
+          setGameConfig(newActiveSession.config);
+        } else {
+          setActiveSessionId(null);
+          setGameState({
+            ...initialState,
+            board: createMockBoard()
+          });
+          setGameConfig({ mode: GameMode.LOCAL });
+        }
+      }
+    }
+  }, [sessionManager, activeSessionId]);
+  
+  // Helper function to refresh the sessions list
+  const refreshSessions = useCallback(() => {
+    if (!sessionManager) return;
+    
+    const allSessions = sessionManager.getAllSessions();
+    setSessions(allSessions);
+  }, [sessionManager]);
+  
+  // Initial setup
+  useEffect(() => {
+    // If sessionManager is available, refresh sessions
+    if (sessionManager) {
+      refreshSessions();
+      
+      // If there are no sessions, create a default local game session
+      if (sessions.length === 0) {
+        sessionManager.createSession({ mode: GameMode.LOCAL }).then(sessionId => {
+          setActiveSessionId(sessionId);
+          refreshSessions();
+        });
+      }
+    }
+  }, [sessionManager, sessions.length, refreshSessions]);
+  
+  // Update active session when it changes
+  useEffect(() => {
+    if (sessionManager && activeSessionId) {
+      const session = sessionManager.getActiveSession();
+      if (session) {
+        setGameState(session.gameState);
+        setGameConfig(session.config);
+      }
+    }
+  }, [sessionManager, activeSessionId]);
+  
+  // Context value
+  const value: ChessContextType = {
+    gameState,
+    gameConfig,
+    isLoading,
+    isTauriAvailable,
+    networkStatus,
+    roomInfo,
+    // Game actions
+    selectSquare,
+    movePiece,
+    resetGame,
+    startNewGame,
+    undoMove,
+    // Multiplayer actions
+    createMultiplayerGame,
+    joinMultiplayerGame,
+    leaveMultiplayerGame,
+    copyRoomLink,
+    // Session management
+    sessions,
+    activeSessionId,
+    createSession,
+    switchSession,
+    endSession
+  };
+  
+  return (
+    <ChessContext.Provider value={value}>
+      {children}
+    </ChessContext.Provider>
+  );
 };
 
+// Hook for using the chess context
 export const useChess = () => {
-    const context = useContext(ChessContext);
-    if (!context) {
-        throw new Error('useChess must be used within a ChessProvider');
-    }
-    return context;
+  const context = useContext(ChessContext);
+  if (context === undefined) {
+    throw new Error('useChess must be used within a ChessProvider');
+  }
+  return context;
 };
+
+// Re-export types and enums
+export { GameMode, Difficulty };

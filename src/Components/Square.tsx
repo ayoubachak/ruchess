@@ -1,6 +1,6 @@
 import React from 'react';
 import { Color, Piece, PieceType, Square } from '../types';
-import { useChess } from '../Context/ChessContext';
+import { GameMode, useChess } from '../Context/ChessContext';
 
 // Import piece images
 import BlackBishop from '../assets/Black_Bishop.png';
@@ -23,7 +23,7 @@ interface SquareProps {
 }
 
 const BoardSquare: React.FC<SquareProps> = ({ square, onClick, isSelected = false }) => {
-    const { gameState, movePiece } = useChess();
+    const { gameState, gameConfig, movePiece } = useChess();
     
     const black = (square.x + square.y) % 2 === 0;
     
@@ -35,10 +35,23 @@ const BoardSquare: React.FC<SquareProps> = ({ square, onClick, isSelected = fals
     const selectedLightSquare = '#f7f769';
     const selectedDarkSquare = '#bbcb44';
     
-    // Determine final color
-    const fillColor = black 
-        ? (isSelected ? selectedDarkSquare : darkSquare)
-        : (isSelected ? selectedLightSquare : lightSquare);
+    // Possible move indicators
+    const possibleMoveLightSquare = '#e8f785';
+    const possibleMoveDarkSquare = '#a7c757';
+    
+    // Check if current player is "me" in multiplayer mode
+    const isMyTurn = gameConfig.mode !== GameMode.MULTIPLAYER || 
+        (gameState.current_player === gameConfig.playerColor);
+    
+    // Determine final color based on state
+    let fillColor;
+    if (isSelected) {
+        fillColor = black ? selectedDarkSquare : selectedLightSquare;
+    } else if (square.isPossibleMove) {
+        fillColor = black ? possibleMoveDarkSquare : possibleMoveLightSquare;
+    } else {
+        fillColor = black ? darkSquare : lightSquare;
+    }
 
     // Helper function to generate image path
     const getImage = (piece: Piece | null) => {
@@ -78,8 +91,12 @@ const BoardSquare: React.FC<SquareProps> = ({ square, onClick, isSelected = fals
     
     // Handle drag start - only allow current player's pieces to be dragged
     const handleDragStart = (e: React.DragEvent) => {
-        // Only allow dragging if the square has a piece and it's the current player's turn
-        if (square.piece && square.piece.color === gameState.current_player) {
+        // Only allow dragging if the square has a piece, it's the current player's turn,
+        // and it's their piece in multiplayer mode
+        if (square.piece && 
+            square.piece.color === gameState.current_player && 
+            isMyTurn) {
+            
             // Set the data being dragged (the position of the piece)
             e.dataTransfer.setData('text/plain', `${square.x},${square.y}`);
             
@@ -147,9 +164,40 @@ const BoardSquare: React.FC<SquareProps> = ({ square, onClick, isSelected = fals
     // Determine if this is a possible capture (has both isPossibleMove and a piece)
     const isPossibleCapture = square.isPossibleMove && square.piece;
     
+    // Determine cursor style based on game state
+    const getCursorStyle = () => {
+        if (gameState.game_over) {
+            return 'default';
+        }
+        
+        if (!isMyTurn) {
+            return 'not-allowed';
+        }
+        
+        if (square.isPossibleMove) {
+            return isPossibleCapture ? 'crosshair' : 'pointer';
+        }
+        
+        return square.piece && square.piece.color === gameState.current_player ? 
+            'grab' : 'default';
+    };
+    
+    // Determine if this square should show a coordinate label
+    // For flipped board, adjust the coordinate display
+    const isFlipped = gameConfig.mode !== GameMode.LOCAL && 
+        gameConfig.playerColor === Color.Black;
+        
+    const showFileLabel = isFlipped ? square.x === 7 : square.x === 0;
+    const showRankLabel = isFlipped ? square.y === 0 : square.y === 7;
+    
+    const fileLabel = isFlipped ? 8 - square.y : 8 - square.y;
+    const rankLabel = isFlipped ? 
+        String.fromCharCode(104 - square.x) : // 'h' downwards when flipped
+        String.fromCharCode(97 + square.x);   // 'a' onwards when normal
+    
     return (
         <div 
-            className={`chess-square ${isSelected ? 'selected' : ''} ${square.isPossibleMove ? 'possible-move' : ''}`}
+            className={`chess-square ${isSelected ? 'selected' : ''} ${square.isPossibleMove ? 'possible-move' : ''} ${isPossibleCapture ? 'possible-capture' : ''}`}
             onClick={onClick} 
             style={{
                 backgroundColor: fillColor,
@@ -159,11 +207,11 @@ const BoardSquare: React.FC<SquareProps> = ({ square, onClick, isSelected = fals
                 justifyContent: 'center',
                 alignItems: 'center',
                 position: 'relative',
-                cursor: 'pointer',
+                cursor: getCursorStyle(),
                 transition: 'background-color 0.2s ease'
             }}
             // Add drag-and-drop attributes for pieces
-            draggable={!!square.piece}
+            draggable={!!square.piece && isMyTurn && square.piece.color === gameState.current_player}
             onDragStart={handleDragStart}
             onDragEnd={handleDragEnd}
             onDragOver={handleDragOver}
@@ -207,8 +255,8 @@ const BoardSquare: React.FC<SquareProps> = ({ square, onClick, isSelected = fals
                 }} />
             )}
             
-            {/* Coordinate labels (optional) */}
-            {square.x === 0 && (
+            {/* Coordinate labels */}
+            {showFileLabel && (
                 <div style={{
                     position: 'absolute',
                     left: '2px',
@@ -217,11 +265,11 @@ const BoardSquare: React.FC<SquareProps> = ({ square, onClick, isSelected = fals
                     color: black ? '#eeeed2' : '#769656',
                     zIndex: 3
                 }}>
-                    {8 - square.y}
+                    {fileLabel}
                 </div>
             )}
             
-            {square.y === 7 && (
+            {showRankLabel && (
                 <div style={{
                     position: 'absolute',
                     right: '2px',
@@ -230,7 +278,7 @@ const BoardSquare: React.FC<SquareProps> = ({ square, onClick, isSelected = fals
                     color: black ? '#eeeed2' : '#769656',
                     zIndex: 3
                 }}>
-                    {String.fromCharCode(97 + square.x)}
+                    {rankLabel}
                 </div>
             )}
         </div>
