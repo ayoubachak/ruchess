@@ -10,6 +10,8 @@ fn main() {
             commands::select_square,
             commands::move_piece,
             commands::reset_game,
+            commands::undo_move,
+            commands::start_new_game,
             commands::current_time,
             commands::greet
         ])
