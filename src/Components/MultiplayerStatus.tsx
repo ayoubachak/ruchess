@@ -51,15 +51,30 @@ const MultiplayerStatus: React.FC<MultiplayerStatusProps> = ({ networkStatus, ro
         }
     };
     
+    const getStatusClasses = () => {
+        const baseClasses = "py-2 px-3 rounded-md font-medium text-center mb-2";
+        
+        switch (networkStatus) {
+            case 'connected':
+                return `${baseClasses} bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200 border border-green-200 dark:border-green-800`;
+            case 'connecting':
+                return `${baseClasses} bg-yellow-100 dark:bg-yellow-900 text-yellow-800 dark:text-yellow-200 border border-yellow-200 dark:border-yellow-800 animate-pulse`;
+            case 'disconnected':
+                return `${baseClasses} bg-red-100 dark:bg-red-900 text-red-800 dark:text-red-200 border border-red-200 dark:border-red-800`;
+            default:
+                return baseClasses;
+        }
+    };
+    
     return (
-        <div className="multiplayer-status">
-            <div className={`status-indicator ${networkStatus}`}>
+        <div className="p-3 bg-gray-50 dark:bg-gray-800 rounded-md mb-4 border border-gray-200 dark:border-gray-700 flex flex-col gap-2">
+            <div className={getStatusClasses()}>
                 {getStatusText()}
             </div>
             
             {networkStatus === 'connected' && roomInfo?.players === 1 && (
                 <button 
-                    className="copy-link-button"
+                    className="btn btn-primary hover-effect"
                     onClick={handleCopyRoomLink}
                 >
                     Copy Invite Link
@@ -67,13 +82,13 @@ const MultiplayerStatus: React.FC<MultiplayerStatusProps> = ({ networkStatus, ro
             )}
             
             {networkStatus === 'connected' && roomInfo?.players === 2 && (
-                <div className={`turn-indicator ${isMyTurn ? 'your-turn' : 'opponent-turn'}`}>
+                <div className={`p-2 rounded-md text-center font-semibold ${isMyTurn ? 'bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200 border-l-4 border-green-500 animate-pulse' : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 border-l-4 border-gray-500'}`}>
                     {isMyTurn ? 'Your turn' : 'Waiting for opponent...'}
                 </div>
             )}
             
-            <div className="player-info">
-                You are playing as: {gameConfig.playerColor === Color.White ? 'White' : 'Black'}
+            <div className="p-2 bg-gray-100 dark:bg-gray-700 rounded-md text-sm text-center">
+                You are playing as: <span className="font-bold">{gameConfig.playerColor === Color.White ? 'White' : 'Black'}</span>
             </div>
         </div>
     );

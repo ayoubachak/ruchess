@@ -25,39 +25,61 @@ interface SquareProps {
 const BoardSquare: React.FC<SquareProps> = ({ square, onClick, isSelected = false }) => {
     const { gameState, gameConfig, movePiece } = useChess();
     
-    const black = (square.x + square.y) % 2 === 0;
-    
-    // Base colors
-    const lightSquare = '#eeeed2';
-    const darkSquare = '#769656';
-    
-    // Selected colors (highlight)
-    const selectedLightSquare = '#f7f769';
-    const selectedDarkSquare = '#bbcb44';
-    
-    // Possible move indicators
-    const possibleMoveLightSquare = '#e8f785';
-    const possibleMoveDarkSquare = '#a7c757';
+    const isBlackSquare = (square.x + square.y) % 2 === 0;
     
     // Check if current player is "me" in multiplayer mode
     const isMyTurn = gameConfig.mode !== GameMode.MULTIPLAYER || 
         (gameState.current_player === gameConfig.playerColor);
     
-    // Determine final color based on state
-    let fillColor;
-    if (isSelected) {
-        fillColor = black ? selectedDarkSquare : selectedLightSquare;
-    } else if (square.isPossibleMove) {
-        fillColor = black ? possibleMoveDarkSquare : possibleMoveLightSquare;
-    } else {
-        fillColor = black ? darkSquare : lightSquare;
-    }
-
+    // Determine if the board is flipped (playing as black)
+    const isFlipped = gameConfig.mode !== GameMode.LOCAL && 
+        gameConfig.playerColor === Color.Black;
+    
+    // Determine classes for square based on state
+    const squareClasses = () => {
+        let baseClasses = "w-full h-full flex justify-center items-center relative transition-colors duration-200";
+        
+        // Base color classes
+        let colorClass = isBlackSquare ? "bg-board-dark" : "bg-board-light";
+        
+        // Selected state
+        if (isSelected) {
+            colorClass = isBlackSquare ? "bg-board-dark-selected" : "bg-board-light-selected";
+        }
+        
+        // Possible move highlight
+        let overlayClass = "";
+        if (square.isPossibleMove) {
+            if (square.piece) {
+                overlayClass = "possible-capture-overlay";
+            } else {
+                overlayClass = "possible-move-overlay";
+            }
+        }
+        
+        // Last move highlight
+        if (square.isLastMove) {
+            overlayClass += " animate-highlight-move";
+        }
+        
+        // Cursor style based on game state
+        let cursorClass = "";
+        if (gameState.game_over) {
+            cursorClass = "cursor-default";
+        } else if (!isMyTurn) {
+            cursorClass = "cursor-not-allowed";
+        } else if (square.isPossibleMove) {
+            cursorClass = square.piece ? "cursor-crosshair" : "cursor-pointer";
+        } else if (square.piece && square.piece.color === gameState.current_player) {
+            cursorClass = "cursor-grab active:cursor-grabbing";
+        }
+        
+        return `${baseClasses} ${colorClass} ${overlayClass} ${cursorClass}`;
+    };
+    
     // Helper function to generate image path
     const getImage = (piece: Piece | null) => {
         if (!piece) return "";
-        
-        console.log("Piece being rendered:", piece); // Debug log
         
         // Handle cases where piece might be serialized differently
         let pieceType;
@@ -89,8 +111,6 @@ const BoardSquare: React.FC<SquareProps> = ({ square, onClick, isSelected = fals
             // Assume it's already a Color enum
             color = piece.color;
         }
-        
-        console.log(`Using color: ${color}, pieceType: ${pieceType}`); // Debug log
         
         // Return the correct image based on piece type and color
         switch (`${color}_${pieceType}`) {
@@ -135,7 +155,7 @@ const BoardSquare: React.FC<SquareProps> = ({ square, onClick, isSelected = fals
             
             // Add a class for styling
             setTimeout(() => {
-                e.currentTarget.classList.add('dragging');
+                e.currentTarget.classList.add('opacity-50');
             }, 0);
             
             // Also select the square to show possible moves
@@ -148,26 +168,26 @@ const BoardSquare: React.FC<SquareProps> = ({ square, onClick, isSelected = fals
     
     // Handle drag end
     const handleDragEnd = (e: React.DragEvent) => {
-        e.currentTarget.classList.remove('dragging');
+        e.currentTarget.classList.remove('opacity-50');
     };
     
     // Handle drag over - only allow dropping on valid move squares
     const handleDragOver = (e: React.DragEvent) => {
         if (square.isPossibleMove) {
             e.preventDefault(); // This is necessary to allow dropping
-            e.currentTarget.classList.add('drag-over');
+            e.currentTarget.classList.add('ring-2', 'ring-blue-400');
         }
     };
     
     // Handle drag leave
     const handleDragLeave = (e: React.DragEvent) => {
-        e.currentTarget.classList.remove('drag-over');
+        e.currentTarget.classList.remove('ring-2', 'ring-blue-400');
     };
     
     // Handle drop - move the piece if the drop is on a valid square
     const handleDrop = (e: React.DragEvent) => {
         e.preventDefault();
-        e.currentTarget.classList.remove('drag-over');
+        e.currentTarget.classList.remove('ring-2', 'ring-blue-400');
         
         // Only process drops on valid move squares
         if (square.isPossibleMove) {
@@ -176,9 +196,6 @@ const BoardSquare: React.FC<SquareProps> = ({ square, onClick, isSelected = fals
                 if (fromCoords.length === 2) {
                     const fromX = parseInt(fromCoords[0]);
                     const fromY = parseInt(fromCoords[1]);
-                    
-                    // Log move for debugging
-                    console.log(`Moving piece from (${fromX},${fromY}) to (${square.x},${square.y})`);
                     
                     // Execute the move
                     movePiece(fromX, fromY, square.x, square.y);
@@ -189,32 +206,8 @@ const BoardSquare: React.FC<SquareProps> = ({ square, onClick, isSelected = fals
         }
     };
     
-    // Determine if this is a possible capture (has both isPossibleMove and a piece)
-    const isPossibleCapture = square.isPossibleMove && square.piece;
-    
-    // Determine cursor style based on game state
-    const getCursorStyle = () => {
-        if (gameState.game_over) {
-            return 'default';
-        }
-        
-        if (!isMyTurn) {
-            return 'not-allowed';
-        }
-        
-        if (square.isPossibleMove) {
-            return isPossibleCapture ? 'crosshair' : 'pointer';
-        }
-        
-        return square.piece && square.piece.color === gameState.current_player ? 
-            'grab' : 'default';
-    };
-    
     // Determine if this square should show a coordinate label
     // For flipped board, adjust the coordinate display
-    const isFlipped = gameConfig.mode !== GameMode.LOCAL && 
-        gameConfig.playerColor === Color.Black;
-        
     const showFileLabel = isFlipped ? square.x === 7 : square.x === 0;
     const showRankLabel = isFlipped ? square.y === 0 : square.y === 7;
     
@@ -223,22 +216,18 @@ const BoardSquare: React.FC<SquareProps> = ({ square, onClick, isSelected = fals
         String.fromCharCode(104 - square.x) : // 'h' downwards when flipped
         String.fromCharCode(97 + square.x);   // 'a' onwards when normal
     
+    // Create piece style with counter-rotation if board is flipped
+    const pieceStyle = isFlipped ? {
+        transform: 'rotate(180deg)', // Counter-rotate pieces when board is flipped
+        maxWidth: '80%',
+        maxHeight: '80%',
+        zIndex: 10
+    } : {};
+    
     return (
         <div 
-            className={`chess-square ${isSelected ? 'selected' : ''} ${square.isPossibleMove ? 'possible-move' : ''} ${isPossibleCapture ? 'possible-capture' : ''}`}
+            className={squareClasses()}
             onClick={onClick} 
-            style={{
-                backgroundColor: fillColor,
-                width: '100%',
-                height: '100%',
-                display: 'flex',
-                justifyContent: 'center',
-                alignItems: 'center',
-                position: 'relative',
-                cursor: getCursorStyle(),
-                transition: 'background-color 0.2s ease'
-            }}
-            // Add drag-and-drop attributes for pieces
             draggable={!!square.piece && isMyTurn && square.piece.color === gameState.current_player}
             onDragStart={handleDragStart}
             onDragEnd={handleDragEnd}
@@ -250,62 +239,36 @@ const BoardSquare: React.FC<SquareProps> = ({ square, onClick, isSelected = fals
                 <img 
                     src={getImage(square.piece)} 
                     alt={`Chess piece`}
-                    style={{ 
-                        maxWidth: '80%', 
-                        maxHeight: '80%', 
-                        zIndex: 2,
-                        pointerEvents: "none" // This prevents the image from interfering with drag events
-                    }} 
+                    className="max-w-[80%] max-h-[80%] z-10 pointer-events-none transition-transform hover:scale-105"
+                    style={pieceStyle}
                 />
             )}
             
             {/* Highlight for empty possible move */}
             {square.isPossibleMove && !square.piece && (
-                <div className="move-indicator" style={{ 
-                    position: 'absolute', 
-                    width: '30%', 
-                    height: '30%', 
-                    borderRadius: '50%', 
-                    background: 'rgba(0, 0, 0, 0.3)', 
-                    zIndex: 1
-                }} />
+                <div className="absolute w-[30%] h-[30%] rounded-full bg-black bg-opacity-30 z-[1] animate-pulse" />
             )}
             
             {/* Highlight for capture move */}
-            {isPossibleCapture && (
-                <div className="capture-indicator" style={{ 
-                    position: 'absolute', 
-                    width: '100%', 
-                    height: '100%', 
-                    border: '4px solid rgba(255, 0, 0, 0.7)', 
-                    boxSizing: 'border-box',
-                    zIndex: 1
-                }} />
+            {square.isPossibleMove && square.piece && (
+                <div className="absolute inset-0 border-2 border-red-600 border-opacity-70 z-[1]" />
             )}
             
-            {/* Coordinate labels */}
+            {/* Coordinate labels - these should also be counter-rotated when board is flipped */}
             {showFileLabel && (
-                <div style={{
-                    position: 'absolute',
-                    left: '2px',
-                    top: '2px',
-                    fontSize: '10px',
-                    color: black ? '#eeeed2' : '#769656',
-                    zIndex: 3
-                }}>
+                <div 
+                    className={`absolute left-1 top-0.5 text-xs font-medium ${isBlackSquare ? 'text-white text-opacity-75' : 'text-black text-opacity-75'} z-20`}
+                    style={isFlipped ? { transform: 'rotate(180deg)' } : {}}
+                >
                     {fileLabel}
                 </div>
             )}
             
             {showRankLabel && (
-                <div style={{
-                    position: 'absolute',
-                    right: '2px',
-                    bottom: '2px',
-                    fontSize: '10px',
-                    color: black ? '#eeeed2' : '#769656',
-                    zIndex: 3
-                }}>
+                <div 
+                    className={`absolute right-1 bottom-0.5 text-xs font-medium ${isBlackSquare ? 'text-white text-opacity-75' : 'text-black text-opacity-75'} z-20`}
+                    style={isFlipped ? { transform: 'rotate(180deg)' } : {}}
+                >
                     {rankLabel}
                 </div>
             )}

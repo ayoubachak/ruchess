@@ -110,10 +110,23 @@ export const ChessProvider: React.FC<Props> = ({ children }) => {
     const sessionMgr = createGameSessionManager(tauri);
     setSessionManager(sessionMgr);
     
+    // Always initialize with a valid board structure regardless of Tauri availability
+    const initialBoard = createMockBoard();
+    console.log("Created initial board with size:", initialBoard.length);
+    setGameState(prevState => ({
+      ...prevState,
+      board: initialBoard
+    }));
+    
     // Listen for AI moves
     if (tauri) {
       aiService.initialize((newGameState) => {
         console.log("AI move received", newGameState);
+        // Ensure we have a valid board structure even from Tauri
+        if (!newGameState.board || newGameState.board.length === 0) {
+          console.warn("Received invalid board from Tauri, using fallback");
+          newGameState.board = createMockBoard();
+        }
         setGameState(newGameState);
         setIsLoading(false);
       }).catch(err => console.error("Failed to initialize AI service", err));
@@ -128,11 +141,8 @@ export const ChessProvider: React.FC<Props> = ({ children }) => {
     socketService.on('disconnect', handleDisconnect);
     socketService.on('turn-update', handleTurnUpdate);
     
-    // Initialize with a blank state but don't create session yet
-    setGameState({
-      ...initialState,
-      board: createMockBoard()
-    });
+    // Initialize game immediately to avoid "board not available" error
+    clientSideResetGame();
     
     // Mark as loaded to remove loading screen
     setIsLoading(false);
@@ -696,37 +706,63 @@ export const ChessProvider: React.FC<Props> = ({ children }) => {
   const resetGame = useCallback(async () => {
     if (isLoading) return;
     
-    // Use Tauri backend when available
+    // Process through Rust backend when available
     if (isTauriAvailable) {
-      setIsLoading(true);
-      invoke<GameState>('reset_game')
-        .then(newGameState => {
-          setGameState(newGameState);
-          setIsLoading(false);
-          
-          // Update the session if necessary
-          if (sessionManager && activeSessionId) {
-            sessionManager.updateSession(activeSessionId, newGameState);
-            refreshSessions();
-          }
-        })
-        .catch(error => {
-          console.error('Error resetting game:', error);
-          setIsLoading(false);
-          // Fall back to client-side implementation
+      console.log("Resetting game via Tauri backend");
+      try {
+        const state = await invoke<GameState>('reset_game');
+        
+        // Validate board from Tauri backend
+        if (!state || !state.board || state.board.length === 0) {
+          console.warn("Received invalid board from Tauri reset_game, using client-side implementation");
           clientSideResetGame();
-        });
+          return;
+        }
+        
+        console.log("Game reset with Tauri, board size:", state.board.length);
+        setGameState(state);
+        
+        // Update the session if necessary
+        if (sessionManager && activeSessionId) {
+          await sessionManager.updateSession(activeSessionId, state);
+          refreshSessions();
+        }
+      } catch (error) {
+        console.error("Error resetting game via Tauri:", error);
+        // Fall back to client-side implementation
+        console.log("Falling back to client-side reset");
+        clientSideResetGame();
+      }
     } else {
       // Client-side implementation
+      console.log("Resetting game via client-side implementation");
       clientSideResetGame();
     }
   }, [isLoading, isTauriAvailable, sessionManager, activeSessionId]);
   
   const clientSideResetGame = () => {
+    console.log("Executing client-side game reset");
+    
+    // Always create a fresh board with pieces in starting positions
+    const board = createMockBoard();
+    
+    if (!board || board.length === 0) {
+      console.error("Failed to create a valid board in clientSideResetGame");
+      return;
+    }
+    
+    console.log("Created new board with size:", board.length);
+    
     const newGameState = {
       ...initialState,
-      board: createMockBoard(),
-      config: gameConfig
+      board: board,
+      config: gameConfig,
+      current_player: Color.White, // Reset to white's turn
+      moveHistory: [], // Clear move history
+      selectedSquare: null, // Clear selection
+      possibleMoves: [], // Clear possible moves
+      game_over: false, // Reset game over state
+      isCheck: false // Reset check state
     };
     
     setGameState(newGameState);
@@ -762,8 +798,9 @@ export const ChessProvider: React.FC<Props> = ({ children }) => {
             const newGameState = await invoke<GameState>('start_new_game', { config });
             console.log("Received new game state:", newGameState);
             
-            if (!newGameState) {
-                console.error("Received empty game state from backend");
+            // Validate board from Tauri backend
+            if (!newGameState || !newGameState.board || newGameState.board.length === 0) {
+                console.error("Received invalid game state from backend, using client-side implementation");
                 clientSideStartNewGame(config);
                 return;
             }
@@ -791,12 +828,23 @@ export const ChessProvider: React.FC<Props> = ({ children }) => {
   
   const clientSideStartNewGame = (config: GameConfig) => {
     console.log('Starting new game with client-side implementation', config);
+    
+    // Always create a new board with all pieces in the correct positions
+    const board = createMockBoard();
+    
     const newGameState = {
       ...initialState,
-      board: createMockBoard(),
-      config: config
+      board: board,
+      config: config,
+      current_player: Color.White, // Reset to white's turn
+      moveHistory: [], // Clear move history
+      selectedSquare: null, // Clear selection
+      possibleMoves: [], // Clear possible moves
+      game_over: false, // Reset game over state
+      isCheck: false // Reset check state
     };
     
+    console.log("Created new client-side game state with board:", newGameState.board.length);
     setGameState(newGameState);
     
     // Create a new session if session manager is available

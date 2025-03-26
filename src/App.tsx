@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import './App.css';
+import './styles.css';
 import Chessboard from './Components/ChessBoard';
 import { ChessProvider, useChess } from './Context/ChessContext';
 import { BrowserRouter, Routes, Route, Navigate, useParams } from 'react-router-dom';
@@ -21,19 +21,25 @@ const JoinGame = () => {
 // Main app component with routing
 const App: React.FC = () => {
     return (
-      <div className="App">
+      <div className="app-container">
           <ChessProvider>
               <BrowserRouter>
                   <Routes>
                       <Route path="/" element={
-                          <header className="App-header">
+                          <div className="w-full max-w-6xl mx-auto">
+                              <h1 className="text-3xl font-bold text-center text-gray-800 dark:text-gray-100 my-6">
+                                  RU Chess
+                              </h1>
                               <Chessboard />
-                          </header>
+                          </div>
                       } />
                       <Route path="/join/:roomId" element={
-                          <header className="App-header">
+                          <div className="w-full max-w-6xl mx-auto">
+                              <h1 className="text-3xl font-bold text-center text-gray-800 dark:text-gray-100 my-6">
+                                  RU Chess - Multiplayer
+                              </h1>
                               <JoinGame />
-                          </header>
+                          </div>
                       } />
                       <Route path="*" element={<Navigate to="/" replace />} />
                   </Routes>

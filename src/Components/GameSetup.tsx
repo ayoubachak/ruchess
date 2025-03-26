@@ -174,254 +174,330 @@ const GameSetup: React.FC<GameSetupProps> = ({ onClose, isTauriAvailable }) => {
     };
     
     return (
-        <div className={`game-options-panel ${isClosing ? 'fade-out' : ''}`}>
-            <div className="panel-header">
-                <h3>Chess Game Options</h3>
-                <button className="close-button" onClick={handleClose}>×</button>
-            </div>
-            
-            <div className="game-mode-tabs">
-                <button 
-                    className={`tab ${activeTab === 'local' ? 'active' : ''}`}
-                    onClick={() => setActiveTab('local')}
-                >
-                    Local Game
-                </button>
-                <button 
-                    className={`tab ${activeTab === 'ai' ? 'active' : ''} ${!isTauriAvailable ? 'disabled-option' : ''}`}
-                    onClick={() => isTauriAvailable ? setActiveTab('ai') : null}
-                    title={!isTauriAvailable ? "AI mode requires the desktop version" : ""}
-                >
-                    VS AI {!isTauriAvailable && <span>(Desktop only)</span>}
-                </button>
-                <button 
-                    className={`tab ${activeTab === 'online' ? 'active' : ''}`}
-                    onClick={() => setActiveTab('online')}
-                >
-                    Online
-                </button>
-                <button 
-                    className={`tab ${activeTab === 'sessions' ? 'active' : ''}`}
-                    onClick={() => setActiveTab('sessions')}
-                >
-                    Sessions
-                </button>
-            </div>
-            
-            <div className="game-options">
-                {activeTab === 'local' && (
-                    <div className="tab-content">
-                        <p>Play a local game against a friend on the same device.</p>
-                        <button 
-                            onClick={handleStartLocalGame} 
-                            className="primary-button"
-                        >
-                            Start Local Game
-                        </button>
-                    </div>
-                )}
+        <div className={`fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 ${isClosing ? 'animate-fade-out' : 'animate-fade-in'}`}>
+            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl w-full max-w-lg overflow-hidden transform transition-all">
+                <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700">
+                    <h3 className="text-lg font-medium text-gray-900 dark:text-white">Chess Game Options</h3>
+                    <button 
+                        className="text-gray-400 hover:text-gray-500 dark:hover:text-gray-300 focus:outline-none" 
+                        onClick={handleClose}
+                    >
+                        <span className="text-2xl">&times;</span>
+                    </button>
+                </div>
                 
-                {activeTab === 'ai' && (
-                    <div className="tab-content">
-                        {!isTauriAvailable ? (
-                            <div className="tauri-unavailable-message">
-                                <p>AI mode requires the desktop version of the app with Tauri backend.</p>
-                                <p>Please download and install the desktop version to play against AI.</p>
-                            </div>
-                        ) : (
-                            <>
-                                <div className="option-group">
-                                    <label>AI Difficulty:</label>
-                                    <div className="ai-options">
-                                        <button 
-                                            onClick={() => setSelectedDifficulty(Difficulty.EASY)}
-                                            className={selectedDifficulty === Difficulty.EASY ? 'selected' : ''}
-                                        >
-                                            Easy
-                                        </button>
-                                        <button 
-                                            onClick={() => setSelectedDifficulty(Difficulty.MEDIUM)}
-                                            className={selectedDifficulty === Difficulty.MEDIUM ? 'selected' : ''}
-                                        >
-                                            Medium
-                                        </button>
-                                        <button 
-                                            onClick={() => setSelectedDifficulty(Difficulty.HARD)}
-                                            className={selectedDifficulty === Difficulty.HARD ? 'selected' : ''}
-                                        >
-                                            Hard
-                                        </button>
-                                    </div>
-                                </div>
-                                
-                                <div className="option-group">
-                                    <label>Color Preference:</label>
-                                    <div className="color-options">
-                                        <div 
-                                            onClick={() => setSelectedColor(Color.White)}
-                                            className={`color-option white ${selectedColor === Color.White ? 'selected' : ''}`}
-                                        >
-                                            Play as White
-                                        </div>
-                                        <div 
-                                            onClick={() => setSelectedColor(Color.Black)}
-                                            className={`color-option black ${selectedColor === Color.Black ? 'selected' : ''}`}
-                                        >
-                                            Play as Black
-                                        </div>
-                                    </div>
-                                </div>
-                                
-                                <button 
-                                    onClick={handleStartAIGame}
-                                    className="primary-button highlight"
-                                >
-                                    Start AI Game
-                                </button>
-                            </>
-                        )}
-                    </div>
-                )}
+                <div className="flex border-b border-gray-200 dark:border-gray-700">
+                    <button 
+                        className={`px-4 py-2 font-medium text-sm focus:outline-none ${
+                            activeTab === 'local' 
+                                ? 'text-blue-600 border-b-2 border-blue-600 dark:text-blue-400 dark:border-blue-400' 
+                                : 'text-gray-600 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300'
+                        }`}
+                        onClick={() => setActiveTab('local')}
+                    >
+                        Local Game
+                    </button>
+                    <button 
+                        className={`px-4 py-2 font-medium text-sm focus:outline-none ${
+                            !isTauriAvailable ? 'cursor-not-allowed opacity-50' : ''
+                        } ${
+                            activeTab === 'ai' 
+                                ? 'text-blue-600 border-b-2 border-blue-600 dark:text-blue-400 dark:border-blue-400' 
+                                : 'text-gray-600 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300'
+                        }`}
+                        onClick={() => isTauriAvailable ? setActiveTab('ai') : null}
+                        title={!isTauriAvailable ? "AI mode requires the desktop version" : ""}
+                    >
+                        VS AI {!isTauriAvailable && <span className="text-xs ml-1">(Desktop only)</span>}
+                    </button>
+                    <button 
+                        className={`px-4 py-2 font-medium text-sm focus:outline-none ${
+                            activeTab === 'online' 
+                                ? 'text-blue-600 border-b-2 border-blue-600 dark:text-blue-400 dark:border-blue-400' 
+                                : 'text-gray-600 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300'
+                        }`}
+                        onClick={() => setActiveTab('online')}
+                    >
+                        Online
+                    </button>
+                    <button 
+                        className={`px-4 py-2 font-medium text-sm focus:outline-none ${
+                            activeTab === 'sessions' 
+                                ? 'text-blue-600 border-b-2 border-blue-600 dark:text-blue-400 dark:border-blue-400' 
+                                : 'text-gray-600 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300'
+                        }`}
+                        onClick={() => setActiveTab('sessions')}
+                    >
+                        Sessions
+                    </button>
+                </div>
                 
-                {activeTab === 'online' && (
-                    <div className="tab-content">
-                        <div className="multiplayer-options">
-                            <div className="create-game-section">
-                                <h4>Create a Game</h4>
-                                <div className="option-group">
-                                    <label>Play as:</label>
-                                    <div className="color-options">
-                                        <div 
-                                            onClick={() => setSelectedColor(Color.White)}
-                                            className={`color-option white ${selectedColor === Color.White ? 'selected' : ''}`}
-                                        >
-                                            White
-                                        </div>
-                                        <div 
-                                            onClick={() => setSelectedColor(Color.Black)}
-                                            className={`color-option black ${selectedColor === Color.Black ? 'selected' : ''}`}
-                                        >
-                                            Black
-                                        </div>
-                                    </div>
-                                </div>
-                                <button 
-                                    className="primary-button"
-                                    onClick={handleCreateMultiplayerGame}
-                                    disabled={isCreatingRoom}
-                                >
-                                    {isCreatingRoom ? 'Creating...' : 'Create Game'}
-                                </button>
-                            </div>
-                            
-                            <div className="divider">OR</div>
-                            
-                            <div className="join-game-section">
-                                <h4>Join a Game</h4>
-                                <div className="option-group">
-                                    <label>Room ID or Link:</label>
-                                    <input 
-                                        type="text" 
-                                        placeholder="Enter room ID or paste link"
-                                        value={roomId}
-                                        onChange={(e) => {
-                                            // Extract room ID from link if necessary
-                                            const input = e.target.value;
-                                            if (input.includes('/join/')) {
-                                                const parts = input.split('/join/');
-                                                setRoomId(parts[1]);
-                                            } else {
-                                                setRoomId(input);
-                                            }
-                                        }}
-                                    />
-                                </div>
-                                <button 
-                                    className="primary-button highlight"
-                                    onClick={handleJoinMultiplayerGame}
-                                    disabled={isJoiningRoom || !roomId.trim()}
-                                >
-                                    {isJoiningRoom ? 'Joining...' : 'Join Game'}
-                                </button>
-                            </div>
+                <div className="p-4">
+                    {activeTab === 'local' && (
+                        <div>
+                            <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">Play a local game against a friend on the same device.</p>
+                            <button 
+                                onClick={handleStartLocalGame} 
+                                className="btn btn-primary w-full hover-effect"
+                            >
+                                Start Local Game
+                            </button>
                         </div>
-                        
-                        {errorMessage && (
-                            <div className="error-message">
-                                {errorMessage}
-                            </div>
-                        )}
-                    </div>
-                )}
-                
-                {activeTab === 'sessions' && (
-                    <div className="tab-content">
-                        <h4>Game Sessions</h4>
-                        <p>Manage your active game sessions. You can have multiple games running simultaneously.</p>
-                        
-                        <div className="session-list">
-                            {sessions.length === 0 ? (
-                                <p className="no-sessions">No active game sessions. Start a new game to create one.</p>
+                    )}
+                    
+                    {activeTab === 'ai' && (
+                        <div>
+                            {!isTauriAvailable ? (
+                                <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-700 rounded-md p-4 mb-4">
+                                    <p className="text-sm text-yellow-700 dark:text-yellow-500">AI mode requires the desktop version of the app with Tauri backend.</p>
+                                    <p className="text-sm text-yellow-700 dark:text-yellow-500 mt-2">Please download and install the desktop version to play against AI.</p>
+                                </div>
                             ) : (
-                                sessions.map(session => (
-                                    <div 
-                                        key={session.id} 
-                                        className={`session-item ${session.id === activeSessionId ? 'active' : ''}`}
-                                        onClick={() => handleSwitchSession(session.id)}
-                                    >
-                                        <div className="session-info">
-                                            <div className="session-mode">
-                                                {getGameModeDisplay(session.config.mode)}
-                                                {session.config.difficulty && ` (${session.config.difficulty})`}
+                                <>
+                                    <div className="mb-4">
+                                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">AI Difficulty:</label>
+                                        <div className="flex space-x-2">
+                                            <button 
+                                                onClick={() => setSelectedDifficulty(Difficulty.EASY)}
+                                                className={`flex-1 py-2 px-3 rounded-md text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors ${
+                                                    selectedDifficulty === Difficulty.EASY 
+                                                        ? 'bg-blue-600 text-white' 
+                                                        : 'bg-gray-100 hover:bg-gray-200 text-gray-800 dark:bg-gray-700 dark:hover:bg-gray-600 dark:text-gray-200'
+                                                }`}
+                                            >
+                                                Easy
+                                            </button>
+                                            <button 
+                                                onClick={() => setSelectedDifficulty(Difficulty.MEDIUM)}
+                                                className={`flex-1 py-2 px-3 rounded-md text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors ${
+                                                    selectedDifficulty === Difficulty.MEDIUM 
+                                                        ? 'bg-blue-600 text-white' 
+                                                        : 'bg-gray-100 hover:bg-gray-200 text-gray-800 dark:bg-gray-700 dark:hover:bg-gray-600 dark:text-gray-200'
+                                                }`}
+                                            >
+                                                Medium
+                                            </button>
+                                            <button 
+                                                onClick={() => setSelectedDifficulty(Difficulty.HARD)}
+                                                className={`flex-1 py-2 px-3 rounded-md text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors ${
+                                                    selectedDifficulty === Difficulty.HARD 
+                                                        ? 'bg-blue-600 text-white' 
+                                                        : 'bg-gray-100 hover:bg-gray-200 text-gray-800 dark:bg-gray-700 dark:hover:bg-gray-600 dark:text-gray-200'
+                                                }`}
+                                            >
+                                                Hard
+                                            </button>
+                                        </div>
+                                    </div>
+                                    
+                                    <div className="mb-4">
+                                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Color Preference:</label>
+                                        <div className="grid grid-cols-2 gap-2">
+                                            <div 
+                                                onClick={() => setSelectedColor(Color.White)}
+                                                className={`cursor-pointer p-3 rounded-md text-center transition-colors ${
+                                                    selectedColor === Color.White 
+                                                        ? 'bg-gray-200 dark:bg-gray-600 border-2 border-blue-500' 
+                                                        : 'bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 border-2 border-transparent'
+                                                }`}
+                                            >
+                                                <div className="flex justify-center items-center space-x-2">
+                                                    <div className="w-5 h-5 rounded-full bg-white border border-gray-300"></div>
+                                                    <span className="text-sm font-medium text-gray-800 dark:text-gray-200">Play as White</span>
+                                                </div>
                                             </div>
-                                            <div className="session-date">
-                                                Created: {formatSessionDate(session.createdAt)}
+                                            <div 
+                                                onClick={() => setSelectedColor(Color.Black)}
+                                                className={`cursor-pointer p-3 rounded-md text-center transition-colors ${
+                                                    selectedColor === Color.Black 
+                                                        ? 'bg-gray-200 dark:bg-gray-600 border-2 border-blue-500' 
+                                                        : 'bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 border-2 border-transparent'
+                                                }`}
+                                            >
+                                                <div className="flex justify-center items-center space-x-2">
+                                                    <div className="w-5 h-5 rounded-full bg-gray-800 border border-gray-300"></div>
+                                                    <span className="text-sm font-medium text-gray-800 dark:text-gray-200">Play as Black</span>
+                                                </div>
                                             </div>
                                         </div>
-                                        <button 
-                                            className="delete-session" 
-                                            onClick={(e) => handleDeleteSession(e, session.id)}
-                                            title="Delete session"
-                                        >
-                                            ×
-                                        </button>
                                     </div>
-                                ))
+                                    
+                                    <button 
+                                        onClick={handleStartAIGame}
+                                        className="btn btn-primary w-full hover-effect"
+                                    >
+                                        Start AI Game
+                                    </button>
+                                </>
                             )}
                         </div>
-                        
-                        <div className="new-session-options">
-                            <h4>Create New Session</h4>
-                            <div className="session-buttons">
-                                <button 
-                                    className="session-button" 
-                                    onClick={() => handleCreateSession(GameMode.LOCAL)}
-                                >
-                                    Local Game
-                                </button>
-                                <button 
-                                    className={`session-button ${!isTauriAvailable ? 'disabled-option' : ''}`}
-                                    onClick={() => isTauriAvailable ? handleCreateSession(GameMode.AI) : null}
-                                    title={!isTauriAvailable ? "AI mode requires the desktop version" : ""}
-                                >
-                                    AI Game {!isTauriAvailable && <span>(Desktop only)</span>}
-                                </button>
-                                <button 
-                                    className="session-button" 
-                                    onClick={() => setActiveTab('online')}
-                                >
-                                    Multiplayer Game
-                                </button>
+                    )}
+                    
+                    {activeTab === 'online' && (
+                        <div>
+                            <div className="space-y-6">
+                                <div className="bg-gray-50 dark:bg-gray-700 rounded-md p-4">
+                                    <h4 className="text-sm font-medium text-gray-800 dark:text-gray-200 mb-3">Create a Game</h4>
+                                    <div className="mb-4">
+                                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Play as:</label>
+                                        <div className="grid grid-cols-2 gap-2">
+                                            <div 
+                                                onClick={() => setSelectedColor(Color.White)}
+                                                className={`cursor-pointer p-2 rounded-md text-center transition-colors ${
+                                                    selectedColor === Color.White 
+                                                        ? 'bg-gray-200 dark:bg-gray-600 border-2 border-blue-500' 
+                                                        : 'bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 border-2 border-transparent'
+                                                }`}
+                                            >
+                                                <div className="flex justify-center items-center space-x-2">
+                                                    <div className="w-4 h-4 rounded-full bg-white border border-gray-300"></div>
+                                                    <span className="text-sm font-medium text-gray-800 dark:text-gray-200">White</span>
+                                                </div>
+                                            </div>
+                                            <div 
+                                                onClick={() => setSelectedColor(Color.Black)}
+                                                className={`cursor-pointer p-2 rounded-md text-center transition-colors ${
+                                                    selectedColor === Color.Black 
+                                                        ? 'bg-gray-200 dark:bg-gray-600 border-2 border-blue-500' 
+                                                        : 'bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 border-2 border-transparent'
+                                                }`}
+                                            >
+                                                <div className="flex justify-center items-center space-x-2">
+                                                    <div className="w-4 h-4 rounded-full bg-gray-800 border border-gray-300"></div>
+                                                    <span className="text-sm font-medium text-gray-800 dark:text-gray-200">Black</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <button 
+                                        className="btn btn-primary w-full hover-effect disabled:opacity-50 disabled:cursor-not-allowed"
+                                        onClick={handleCreateMultiplayerGame}
+                                        disabled={isCreatingRoom}
+                                    >
+                                        {isCreatingRoom ? 'Creating...' : 'Create Game'}
+                                    </button>
+                                </div>
+                                
+                                <div className="relative flex items-center py-2">
+                                    <div className="flex-grow border-t border-gray-300 dark:border-gray-600"></div>
+                                    <span className="flex-shrink mx-3 text-sm text-gray-500 dark:text-gray-400">OR</span>
+                                    <div className="flex-grow border-t border-gray-300 dark:border-gray-600"></div>
+                                </div>
+                                
+                                <div className="bg-gray-50 dark:bg-gray-700 rounded-md p-4">
+                                    <h4 className="text-sm font-medium text-gray-800 dark:text-gray-200 mb-3">Join a Game</h4>
+                                    <div className="mb-4">
+                                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Room ID or Link:</label>
+                                        <input 
+                                            type="text" 
+                                            placeholder="Enter room ID or paste link"
+                                            value={roomId}
+                                            onChange={(e) => {
+                                                // Extract room ID from link if necessary
+                                                const input = e.target.value;
+                                                if (input.includes('/join/')) {
+                                                    const parts = input.split('/join/');
+                                                    setRoomId(parts[1]);
+                                                } else {
+                                                    setRoomId(input);
+                                                }
+                                            }}
+                                            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-800 dark:text-white text-sm"
+                                        />
+                                    </div>
+                                    <button 
+                                        className="btn btn-primary w-full hover-effect disabled:opacity-50 disabled:cursor-not-allowed"
+                                        onClick={handleJoinMultiplayerGame}
+                                        disabled={isJoiningRoom || !roomId.trim()}
+                                    >
+                                        {isJoiningRoom ? 'Joining...' : 'Join Game'}
+                                    </button>
+                                </div>
                             </div>
+                            
+                            {errorMessage && (
+                                <div className="mt-4 p-3 bg-red-50 border border-red-200 text-red-600 dark:bg-red-900/20 dark:border-red-700 dark:text-red-400 rounded-md text-sm">
+                                    {errorMessage}
+                                </div>
+                            )}
                         </div>
-                        
-                        {errorMessage && (
-                            <div className="error-message">
-                                {errorMessage}
+                    )}
+                    
+                    {activeTab === 'sessions' && (
+                        <div>
+                            <h4 className="text-sm font-medium text-gray-800 dark:text-gray-200 mb-2">Game Sessions</h4>
+                            <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">Manage your active game sessions. You can have multiple games running simultaneously.</p>
+                            
+                            <div className="space-y-2 mb-6">
+                                {sessions.length === 0 ? (
+                                    <p className="text-sm text-gray-500 dark:text-gray-400 italic p-3 bg-gray-50 dark:bg-gray-700 rounded-md">No active game sessions. Start a new game to create one.</p>
+                                ) : (
+                                    sessions.map(session => (
+                                        <div 
+                                            key={session.id} 
+                                            className={`flex justify-between items-center p-3 rounded-md cursor-pointer transition-colors ${
+                                                session.id === activeSessionId 
+                                                    ? 'bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800' 
+                                                    : 'bg-gray-50 dark:bg-gray-700 hover:bg-gray-100 dark:hover:bg-gray-600 border border-gray-200 dark:border-gray-600'
+                                            }`}
+                                            onClick={() => handleSwitchSession(session.id)}
+                                        >
+                                            <div>
+                                                <div className="font-medium text-sm text-gray-800 dark:text-gray-200">
+                                                    {getGameModeDisplay(session.config.mode)}
+                                                    {session.config.difficulty && ` (${session.config.difficulty})`}
+                                                </div>
+                                                <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                                                    Created: {formatSessionDate(session.createdAt)}
+                                                </div>
+                                            </div>
+                                            <button 
+                                                className="p-1 text-gray-400 hover:text-red-500 dark:hover:text-red-400 focus:outline-none" 
+                                                onClick={(e) => handleDeleteSession(e, session.id)}
+                                                aria-label="Delete session"
+                                            >
+                                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                                    <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                                                </svg>
+                                            </button>
+                                        </div>
+                                    ))
+                                )}
                             </div>
-                        )}
-                    </div>
-                )}
+                            
+                            <div className="bg-gray-50 dark:bg-gray-700 rounded-md p-4">
+                                <h4 className="text-sm font-medium text-gray-800 dark:text-gray-200 mb-3">Create New Session</h4>
+                                <div className="grid grid-cols-3 gap-2">
+                                    <button 
+                                        className="btn btn-secondary hover-effect"
+                                        onClick={() => handleCreateSession(GameMode.LOCAL)}
+                                    >
+                                        Local Game
+                                    </button>
+                                    <button 
+                                        className={`btn btn-secondary hover-effect ${!isTauriAvailable ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                        onClick={() => isTauriAvailable ? handleCreateSession(GameMode.AI) : null}
+                                        title={!isTauriAvailable ? "AI mode requires the desktop version" : ""}
+                                    >
+                                        AI Game {!isTauriAvailable && <span className="text-xs block mt-1">(Desktop only)</span>}
+                                    </button>
+                                    <button 
+                                        className="btn btn-secondary hover-effect"
+                                        onClick={() => setActiveTab('online')}
+                                    >
+                                        Multiplayer
+                                    </button>
+                                </div>
+                            </div>
+                            
+                            {errorMessage && (
+                                <div className="mt-4 p-3 bg-red-50 border border-red-200 text-red-600 dark:bg-red-900/20 dark:border-red-700 dark:text-red-400 rounded-md text-sm">
+                                    {errorMessage}
+                                </div>
+                            )}
+                        </div>
+                    )}
+                </div>
             </div>
         </div>
     );
